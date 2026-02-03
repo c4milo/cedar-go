@@ -30,6 +30,21 @@ func TestPattern(t *testing.T) {
 		t.Parallel()
 		testutil.Equals(t, string(NewPattern(String("*foo"), Wildcard{}).MarshalCedar()), `"\*foo*"`)
 	})
+	t.Run("MarshalCedar_unicode", func(t *testing.T) {
+		t.Parallel()
+		// Verify unicode is escaped using Rust/Cedar style \u{XXXX}
+		pattern := NewPattern(String("hello"), Wildcard{}, String("世界"))
+		marshaled := string(pattern.MarshalCedar())
+		// Should use \u{XXXX} format, not \uXXXX
+		testutil.Equals(t, marshaled, `"hello*\u{4e16}\u{754c}"`)
+	})
+	t.Run("MarshalCedar_special_chars", func(t *testing.T) {
+		t.Parallel()
+		// Verify special characters are escaped correctly
+		pattern := NewPattern(String("a\nb\t\"c"))
+		marshaled := string(pattern.MarshalCedar())
+		testutil.Equals(t, marshaled, `"a\nb\t\"c"`)
+	})
 }
 
 func TestPatternMatch(t *testing.T) {

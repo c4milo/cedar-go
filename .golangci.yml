@@ -11,8 +11,10 @@ linters:
     - errcheck
     - errname
     - gochecksumtype
+    - gocognit
     - govet
     - ineffassign
+    - modernize
     - revive
     - staticcheck
   exclusions:
@@ -42,6 +44,8 @@ linters:
         text: exported
 
   settings:
+    gocognit:
+      min-complexity: 15
     revive:
       rules:
         - name: var-naming

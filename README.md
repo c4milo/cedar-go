@@ -38,13 +38,22 @@ The Go implementation includes:
 - integration test suite
 - human-readable schema parsing
 
+Additionally, the following features are available as **experimental** packages (in `x/exp/`):
+
+- [schema validator](https://docs.cedarpolicy.com/policies/validation.html) - type-check policies and validate entities against schemas, with support for level-based validation ([RFC 76](https://github.com/cedar-policy/rfcs/blob/main/text/0076-level-based-slicing.md))
+- partial evaluation (TPE) - evaluate policies with unknown values, producing residual policies
+- batch authorization - high-performance evaluation with variable substitution
+- entity slicing - compute minimal entity data needed for authorization
+- query APIs - `QueryActions()`, `QueryPrincipals()`, `QueryResources()` for listing potentially authorized values
+
+Additionally, the following features are also available in the `x/exp/ast` package:
+
+- [policy templates](https://docs.cedarpolicy.com/policies/templates.html) - parameterized policies with slots that can be filled with concrete values
+
 The Go implementation does not yet include:
 
 - CLI applications
-- the schema [validator](https://docs.cedarpolicy.com/policies/validation.html)
 - the formatter
-- partial evaluation
-- support for [policy templates](https://docs.cedarpolicy.com/policies/templates.html)
 
 ## Quick Start
 
@@ -124,7 +133,17 @@ The cedar-go module houses the following public packages:
  * [cedar](.) - The main package for interacting with the module, including parsing policies and entities, schemas, and authorizing requests.
  * [ast](ast/) - Programmatic construction of Cedar ASTs
  * [types](types/) - Basic types common to multiple packages. For convenience, most of these are also projected through the cedar package.
- * [x/exp/batch](x/exp/batch/) - An experimental batch authorization API supporting high-performance variable substitution via partial evaluation.
+
+### Experimental Packages (`x/exp/`)
+
+These packages are experimental and not subject to semantic versioning constraints. Breaking changes may occur at any time.
+
+ * [x/exp/ast](x/exp/ast/) - Inspect and analyze Cedar policy AST structure
+ * [x/exp/batch](x/exp/batch/) - Batch authorization API supporting high-performance variable substitution via partial evaluation
+ * [x/exp/eval](x/exp/eval/) - Advanced evaluation APIs including partial evaluation, residual policy analysis, entity loading, and query APIs for listing authorized principals, resources, and actions
+ * [x/exp/entityslice](x/exp/entityslice/) - Compute entity manifests and slice entity data for optimized authorization
+ * [x/exp/schema](x/exp/schema/) - Parse and convert Cedar schemas between Cedar and JSON formats
+ * [x/exp/validator](x/exp/validator/) - Type-check policies against schemas, validate entities and requests
 
 ## Documentation
 
