@@ -213,3 +213,79 @@ func TestDigitVal(t *testing.T) {
 		})
 	}
 }
+
+func TestQuote(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   string
+		star bool
+		want string
+	}{
+		// Basic strings
+		{"empty", "", false, ""},
+		{"simple", "hello", false, "hello"},
+		{"with_space", "hello world", false, "hello world"},
+
+		// Escape sequences
+		{"newline", "a\nb", false, `a\nb`},
+		{"carriage_return", "a\rb", false, `a\rb`},
+		{"tab", "a\tb", false, `a\tb`},
+		{"backslash", `a\b`, false, `a\\b`},
+		{"null", "a\x00b", false, `a\0b`},
+		{"single_quote", "a'b", false, `a\'b`},
+		{"double_quote", `a"b`, false, `a\"b`},
+
+		// Non-printable ASCII (hex escape)
+		{"control_char", "a\x01b", false, `a\x01b`},
+		{"del_char", "a\x7fb", false, `a\x7fb`},
+
+		// Unicode (Rust/Cedar style \u{XXXX})
+		{"unicode_basic", "a\u00e9b", false, `a\u{e9}b`},        // é
+		{"unicode_cjk", "a\u4e2db", false, `a\u{4e2d}b`},        // 中
+		{"unicode_emoji", "a\U0001F600b", false, `a\u{1f600}b`}, // 😀
+		{"unicode_only", "日本語", false, `\u{65e5}\u{672c}\u{8a9e}`},
+
+		// Star escaping
+		{"star_no_escape", "a*b", false, "a*b"},
+		{"star_with_escape", "a*b", true, `a\*b`},
+		{"multiple_stars", "a**b", true, `a\*\*b`},
+
+		// Mixed
+		{"mixed", "hello\nworld*!", true, `hello\nworld\*!`},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := Quote(tt.in, tt.star)
+			testutil.Equals(t, got, tt.want)
+		})
+	}
+}
+
+func TestQuoteUnquoteRoundTrip(t *testing.T) {
+	t.Parallel()
+	// Test that Quote and Unquote are inverses
+	tests := []struct {
+		name string
+		in   string
+		star bool
+	}{
+		{"simple", "hello", false},
+		{"with_escapes", "a\n\r\t\\b", false},
+		{"with_unicode", "hello 世界 🌍", false},
+		{"with_star", "a*b*c", true},
+		{"complex", "line1\nline2\twith\ttabs and unicode: café ☕", false},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			quoted := Quote(tt.in, tt.star)
+			unquoted, _, err := Unquote([]byte(quoted), tt.star)
+			testutil.OK(t, err)
+			testutil.Equals(t, unquoted, tt.in)
+		})
+	}
+}
