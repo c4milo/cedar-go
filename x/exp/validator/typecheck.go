@@ -534,39 +534,91 @@ func (ctx *typeContext) typecheckSetOp(node ast.IsNode) CedarType {
 
 // typecheckExtensionCall handles extension function calls
 func (ctx *typeContext) typecheckExtensionCall(n ast.NodeTypeExtensionCall) CedarType {
-	// Type-check all arguments
-	for _, arg := range n.Args {
-		ctx.typecheck(arg)
+	// Type-check all arguments and collect their types
+	argTypes := make([]CedarType, len(n.Args))
+	for i, arg := range n.Args {
+		argTypes[i] = ctx.typecheck(arg)
 	}
 
-	// Determine return type based on function name
-	switch string(n.Name) {
-	// IP address functions
+	funcName := string(n.Name)
+
+	// Validate argument types and determine return type based on function name
+	switch funcName {
+	// IP address constructor: ip(String) -> ipaddr
 	case "ip", "ipaddr":
+		ctx.expectArgs(funcName, argTypes, StringType{})
 		return ExtensionType{Name: "ipaddr"}
-	case "isIpv4", "isIpv6", "isLoopback", "isMulticast", "isInRange":
+
+	// IP address methods (called on ipaddr, no additional args)
+	case "isIpv4", "isIpv6", "isLoopback", "isMulticast":
+		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "ipaddr"})
 		return BoolType{}
 
-	// Decimal functions
+	// isInRange: ipaddr.isInRange(ipaddr) -> Bool
+	case "isInRange":
+		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "ipaddr"}, ExtensionType{Name: "ipaddr"})
+		return BoolType{}
+
+	// Decimal constructor: decimal(String) -> decimal
 	case "decimal":
+		ctx.expectArgs(funcName, argTypes, StringType{})
 		return ExtensionType{Name: "decimal"}
+
+	// Decimal comparison methods: decimal.lessThan(decimal) -> Bool
 	case "lessThan", "lessThanOrEqual", "greaterThan", "greaterThanOrEqual":
+		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "decimal"}, ExtensionType{Name: "decimal"})
 		return BoolType{}
 
-	// Datetime functions
+	// Datetime constructor: datetime(String) -> datetime
 	case "datetime":
+		ctx.expectArgs(funcName, argTypes, StringType{})
 		return ExtensionType{Name: "datetime"}
+
+	// Duration constructor: duration(String) -> duration
 	case "duration":
+		ctx.expectArgs(funcName, argTypes, StringType{})
 		return ExtensionType{Name: "duration"}
-	case "offset", "durationSince":
+
+	// Datetime arithmetic: datetime.offset(duration) -> datetime
+	case "offset":
+		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "datetime"}, ExtensionType{Name: "duration"})
 		return ExtensionType{Name: "datetime"}
+
+	// Datetime difference: datetime.durationSince(datetime) -> duration
+	case "durationSince":
+		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "datetime"}, ExtensionType{Name: "datetime"})
+		return ExtensionType{Name: "duration"}
+
+	// Datetime extraction methods (called on datetime, no additional args)
 	case "toDate", "toTime":
+		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "datetime"})
 		return ExtensionType{Name: "datetime"}
+
+	// Duration conversion methods (called on duration, no additional args)
 	case "toDays", "toHours", "toMinutes", "toSeconds", "toMilliseconds":
+		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "duration"})
 		return LongType{}
 
 	default:
 		return UnknownType{}
+	}
+}
+
+// expectArgs validates that the provided argument types match the expected types.
+// If there's a mismatch, it reports a type error.
+func (ctx *typeContext) expectArgs(funcName string, actual []CedarType, expected ...CedarType) {
+	if len(actual) != len(expected) {
+		ctx.errors = append(ctx.errors,
+			fmt.Sprintf("%s() expects %d argument(s), got %d", funcName, len(expected), len(actual)))
+		return
+	}
+
+	for i, exp := range expected {
+		act := actual[i]
+		if !isTypeUnknown(act) && !TypesMatch(exp, act) {
+			ctx.errors = append(ctx.errors,
+				fmt.Sprintf("%s() argument %d: expected %s, got %s", funcName, i+1, exp, act))
+		}
 	}
 }
 

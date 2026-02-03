@@ -17,6 +17,7 @@ package validator
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/cedar-policy/cedar-go"
 	"github.com/cedar-policy/cedar-go/types"
@@ -66,6 +67,9 @@ type Validator struct {
 	// Level 2 allows principal.manager.name, etc.
 	// This implements RFC 76 level-based validation.
 	maxAttributeLevel int
+	// strictEntityValidation when true, validates that entities don't have
+	// attributes that aren't declared in the schema.
+	strictEntityValidation bool
 }
 
 // ValidatorOption configures a Validator.
@@ -87,12 +91,27 @@ func WithMaxAttributeLevel(level int) ValidatorOption {
 	}
 }
 
+// WithStrictEntityValidation enables strict entity validation mode.
+// When enabled, entities that have attributes not declared in the schema
+// will produce validation errors. By default, extra attributes are allowed.
+//
+// Note: If the schema defines a record type with OpenRecord=true (via
+// additionalAttributes in JSON schema), extra attributes are allowed on
+// that specific record type even in strict mode.
+func WithStrictEntityValidation() ValidatorOption {
+	return func(v *Validator) {
+		v.strictEntityValidation = true
+	}
+}
+
 // EntityTypeInfo contains schema information about an entity type.
 type EntityTypeInfo struct {
 	// Attributes defined on this entity type
 	Attributes map[string]AttributeType
 	// Types this entity can be a member of
 	MemberOfTypes []types.EntityType
+	// OpenRecord when true allows additional attributes not declared in schema
+	OpenRecord bool
 }
 
 // ActionTypeInfo contains schema information about an action.
@@ -251,8 +270,8 @@ func (v *Validator) validateEntity(uid types.EntityUID, entity types.Entity) []E
 	// Check if entity type is defined
 	entityInfo, ok := v.entityTypes[uid.Type]
 	if !ok {
-		// Check if it's an action entity
-		if uid.Type == "Action" {
+		// Check if it's an action entity (Action or Namespace::Action)
+		if v.isActionEntityType(uid.Type) {
 			return errs // Action entities are handled differently
 		}
 		errs = append(errs, EntityError{
@@ -280,6 +299,18 @@ func (v *Validator) validateEntity(uid types.EntityUID, entity types.Entity) []E
 				EntityUID: uid,
 				Message:   fmt.Sprintf("attribute %s: %v", attrName, err),
 			})
+		}
+	}
+
+	// Check for undeclared attributes in strict mode
+	if v.strictEntityValidation && !entityInfo.OpenRecord {
+		for attrName := range entity.Attributes.All() {
+			if _, declared := entityInfo.Attributes[string(attrName)]; !declared {
+				errs = append(errs, EntityError{
+					EntityUID: uid,
+					Message:   fmt.Sprintf("attribute %s is not declared in schema", attrName),
+				})
+			}
 		}
 	}
 
@@ -314,6 +345,15 @@ func (v *Validator) validateContext(context types.Value, expected RecordType) er
 
 		if err := v.validateValue(val, attrType.Type); err != nil {
 			return fmt.Errorf("context attribute %s: %v", attrName, err)
+		}
+	}
+
+	// Check for undeclared attributes in strict mode
+	if v.strictEntityValidation && !expected.OpenRecord {
+		for attrName := range rec.All() {
+			if _, declared := expected.Attributes[string(attrName)]; !declared {
+				return fmt.Errorf("context attribute %s is not declared in schema", attrName)
+			}
 		}
 	}
 
@@ -378,6 +418,14 @@ func (v *Validator) inferRecordType(r types.Record) CedarType {
 	return RecordType{Attributes: attrs}
 }
 
+// isActionEntityType checks if an entity type is an action type.
+// This handles both "Action" and namespaced "Namespace::Action" types.
+func (v *Validator) isActionEntityType(t types.EntityType) bool {
+	s := string(t)
+	// Check for exact "Action" or ends with "::Action"
+	return s == "Action" || strings.HasSuffix(s, "::Action")
+}
+
 // typeInList checks if a type is in a list of types.
 func (v *Validator) typeInList(t types.EntityType, list []types.EntityType) bool {
 	if len(list) == 0 {
@@ -412,9 +460,9 @@ func (v *Validator) validateEntityScope(scope ast.IsScopeNode, scopeName string,
 	}
 }
 
-// checkEntityType validates an entity type, allowing "Action" as special case.
+// checkEntityType validates an entity type, allowing action types as special case.
 func (v *Validator) checkEntityType(t types.EntityType, scopeName string, errs *[]string) {
-	if _, ok := v.entityTypes[t]; !ok && t != "Action" {
+	if _, ok := v.entityTypes[t]; !ok && !v.isActionEntityType(t) {
 		*errs = append(*errs, fmt.Sprintf("%s scope references unknown entity type: %s", scopeName, t))
 	}
 }

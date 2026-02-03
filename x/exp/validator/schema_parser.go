@@ -170,17 +170,24 @@ func (v *Validator) parseEntityType(fullName string, et *jsonEntityType) (*Entit
 
 // parseEntityShape processes the shape (attributes) of an entity type.
 func (v *Validator) parseEntityShape(info *EntityTypeInfo, entityName string, shape *jsonType) error {
-	if shape == nil || shape.Attributes == nil {
+	if shape == nil {
+		// No shape means open record (no attributes defined, any attributes allowed)
+		info.OpenRecord = true
 		return nil
 	}
 
-	for attrName, attr := range shape.Attributes {
-		at, err := v.parseJSONAttr(&attr)
-		if err != nil {
-			return fmt.Errorf("failed to parse attribute %s.%s: %w", entityName, attrName, err)
+	if shape.Attributes != nil {
+		for attrName, attr := range shape.Attributes {
+			at, err := v.parseJSONAttr(&attr)
+			if err != nil {
+				return fmt.Errorf("failed to parse attribute %s.%s: %w", entityName, attrName, err)
+			}
+			info.Attributes[attrName] = at
 		}
-		info.Attributes[attrName] = at
 	}
+
+	// Entities with a defined shape are closed (no extra attributes in strict mode)
+	info.OpenRecord = false
 	return nil
 }
 
@@ -191,7 +198,9 @@ func (v *Validator) parseActions(nsName string, actions map[string]jsonAction) e
 		if err != nil {
 			return err
 		}
-		actionUID := types.EntityUID{Type: "Action", ID: types.String(name)}
+		// Use qualified action type for namespaced actions
+		actionType := qualifiedName(nsName, "Action")
+		actionUID := types.EntityUID{Type: types.EntityType(actionType), ID: types.String(name)}
 		v.actionTypes[actionUID] = info
 	}
 	return nil
@@ -214,7 +223,7 @@ func (v *Validator) parseAction(nsName, name string, act *jsonAction) (*ActionTy
 		return nil, err
 	}
 
-	v.parseActionMemberOf(info, act.MemberOf)
+	v.parseActionMemberOf(info, nsName, act.MemberOf)
 
 	return info, nil
 }
@@ -233,14 +242,12 @@ func (v *Validator) parseAppliesTo(info *ActionTypeInfo, nsName, actionName stri
 		info.ResourceTypes = append(info.ResourceTypes, types.EntityType(rt))
 	}
 
-	if appliesTo.Context != nil && appliesTo.Context.Attributes != nil {
-		for attrName, attr := range appliesTo.Context.Attributes {
-			at, err := v.parseJSONAttr(&attr)
-			if err != nil {
-				return fmt.Errorf("failed to parse action %s context attr %s: %w", actionName, attrName, err)
-			}
-			info.Context.Attributes[attrName] = at
+	if appliesTo.Context != nil {
+		ctx, err := v.parseRecordTypeWithOpen(appliesTo.Context)
+		if err != nil {
+			return fmt.Errorf("failed to parse action %s context: %w", actionName, err)
 		}
+		info.Context = ctx
 	}
 
 	return nil
@@ -248,24 +255,25 @@ func (v *Validator) parseAppliesTo(info *ActionTypeInfo, nsName, actionName stri
 
 // parseActionContext processes the top-level context of an action.
 func (v *Validator) parseActionContext(info *ActionTypeInfo, nsName, actionName string, context *jsonType) error {
-	if context == nil || context.Attributes == nil {
+	if context == nil {
 		return nil
 	}
 
-	for attrName, attr := range context.Attributes {
-		at, err := v.parseJSONAttr(&attr)
-		if err != nil {
-			return fmt.Errorf("failed to parse action %s context attr %s: %w", actionName, attrName, err)
-		}
+	ctx, err := v.parseRecordTypeWithOpen(context)
+	if err != nil {
+		return fmt.Errorf("failed to parse action %s context: %w", actionName, err)
+	}
+	// Merge with existing context (from appliesTo)
+	for attrName, at := range ctx.Attributes {
 		info.Context.Attributes[attrName] = at
 	}
 	return nil
 }
 
 // parseActionMemberOf processes the memberOf section of an action.
-func (v *Validator) parseActionMemberOf(info *ActionTypeInfo, memberOf []jsonActionRef) {
+func (v *Validator) parseActionMemberOf(info *ActionTypeInfo, nsName string, memberOf []jsonActionRef) {
 	for _, mo := range memberOf {
-		typ := "Action"
+		typ := qualifiedName(nsName, "Action")
 		if mo.Type != "" {
 			typ = mo.Type
 		}
@@ -337,6 +345,22 @@ func (v *Validator) parseRecordType(attributes map[string]jsonAttr) (CedarType, 
 		at, err := v.parseJSONAttr(&attr)
 		if err != nil {
 			return nil, err
+		}
+		rec.Attributes[name] = at
+	}
+	return rec, nil
+}
+
+// parseRecordTypeWithOpen creates a RecordType.
+func (v *Validator) parseRecordTypeWithOpen(jt *jsonType) (RecordType, error) {
+	rec := RecordType{Attributes: make(map[string]AttributeType)}
+	if jt == nil {
+		return rec, nil
+	}
+	for name, attr := range jt.Attributes {
+		at, err := v.parseJSONAttr(&attr)
+		if err != nil {
+			return rec, err
 		}
 		rec.Attributes[name] = at
 	}

@@ -50,6 +50,11 @@ func ValidatePolicies(s *schema.Schema, policies *cedar.PolicySet, opts ...Valid
 // ValidateEntities validates all entities against a schema.
 // This is a convenience function that creates a Validator and validates entities.
 //
+// Options can be provided to configure the validator behavior:
+//
+//	// Validate with strict mode to catch undeclared attributes
+//	result := validator.ValidateEntities(schema, entities, validator.WithStrictEntityValidation())
+//
 // Example:
 //
 //	result := validator.ValidateEntities(schema, entities)
@@ -58,8 +63,8 @@ func ValidatePolicies(s *schema.Schema, policies *cedar.PolicySet, opts ...Valid
 //	        log.Printf("Entity %s: %s", err.EntityUID, err.Message)
 //	    }
 //	}
-func ValidateEntities(s *schema.Schema, entities types.EntityMap) EntityValidationResult {
-	v, err := New(s)
+func ValidateEntities(s *schema.Schema, entities types.EntityMap, opts ...ValidatorOption) EntityValidationResult {
+	v, err := New(s, opts...)
 	if err != nil {
 		return EntityValidationResult{
 			Valid:  false,

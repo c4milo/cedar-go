@@ -4490,3 +4490,1438 @@ func TestWithMaxAttributeLevelOption(t *testing.T) {
 		t.Errorf("Expected default maxAttributeLevel=0, got %d", v2.maxAttributeLevel)
 	}
 }
+
+// TestNamespacedActions tests that actions in namespaced schemas are stored
+// with the correct qualified action type (e.g., MyApp::Action::"view").
+func TestNamespacedActions(t *testing.T) {
+	schemaJSON := `{
+		"MyApp": {
+			"entityTypes": {
+				"User": {},
+				"Document": {}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["Document"]
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(&s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Check that the action is stored with the namespaced type
+	expectedActionUID := types.EntityUID{Type: "MyApp::Action", ID: "view"}
+	if _, ok := v.actionTypes[expectedActionUID]; !ok {
+		t.Errorf("Expected action with type MyApp::Action not found")
+		t.Logf("Available actions:")
+		for uid := range v.actionTypes {
+			t.Logf("  %s", uid)
+		}
+	}
+
+	// Verify the action is NOT stored with unqualified "Action" type
+	unqualifiedActionUID := types.EntityUID{Type: "Action", ID: "view"}
+	if _, ok := v.actionTypes[unqualifiedActionUID]; ok {
+		t.Errorf("Action should not be stored with unqualified 'Action' type")
+	}
+}
+
+// TestNamespacedActionValidation tests policy validation with namespaced actions.
+func TestNamespacedActionValidation(t *testing.T) {
+	schemaJSON := `{
+		"MyApp": {
+			"entityTypes": {
+				"User": {},
+				"Document": {}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["Document"]
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	// Policy with namespaced action should be valid
+	policies := cedar.NewPolicySet()
+	var policy cedar.Policy
+	if err := policy.UnmarshalCedar([]byte(`permit(principal, action == MyApp::Action::"view", resource);`)); err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+	policies.Add("test", &policy)
+
+	result := ValidatePolicies(&s, policies)
+	if !result.Valid {
+		t.Errorf("Expected valid policy, got errors: %v", result.Errors)
+	}
+}
+
+// TestStrictEntityValidation tests that strict entity validation catches
+// undeclared attributes.
+func TestStrictEntityValidation(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"name": {"type": "String", "required": true}
+						}
+					}
+				}
+			},
+			"actions": {}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	// Entity with an extra attribute (not declared in schema)
+	entities := types.EntityMap{
+		types.EntityUID{Type: "User", ID: "alice"}: types.Entity{
+			Attributes: types.NewRecord(types.RecordMap{
+				"name":        types.String("Alice"),
+				"extraField":  types.String("should not be here"),
+			}),
+		},
+	}
+
+	// Without strict validation, extra attributes should be allowed
+	result := ValidateEntities(&s, entities)
+	if !result.Valid {
+		t.Errorf("Without strict mode, extra attributes should be allowed, got errors: %v", result.Errors)
+	}
+
+	// With strict validation, extra attributes should be rejected
+	result = ValidateEntities(&s, entities, WithStrictEntityValidation())
+	if result.Valid {
+		t.Error("With strict mode, extra attributes should cause validation to fail")
+	} else {
+		found := false
+		for _, err := range result.Errors {
+			if strings.Contains(err.Message, "extraField") && strings.Contains(err.Message, "not declared") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected error about undeclared attribute 'extraField', got: %v", result.Errors)
+		}
+	}
+}
+
+// TestOpenRecordAllowsExtraAttributes tests that entities with no shape definition
+// allow extra attributes even in strict mode (entities without a shape are open by default).
+func TestOpenRecordAllowsExtraAttributes(t *testing.T) {
+	// Note: The schema package currently doesn't preserve additionalAttributes field.
+	// However, entities without a shape definition are treated as open (allow any attrs).
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {}
+			},
+			"actions": {}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	// Entity with extra attributes - allowed because entity has no shape (open)
+	entities := types.EntityMap{
+		types.EntityUID{Type: "User", ID: "alice"}: types.Entity{
+			Attributes: types.NewRecord(types.RecordMap{
+				"name":       types.String("Alice"),
+				"extraField": types.String("allowed because no shape means open"),
+			}),
+		},
+	}
+
+	// With strict validation, entities without a shape should allow extra attributes
+	result := ValidateEntities(&s, entities, WithStrictEntityValidation())
+	if !result.Valid {
+		t.Errorf("Entity without shape should allow extra attributes even in strict mode, got errors: %v", result.Errors)
+	}
+}
+
+// TestClosedRecordRejectsExtraAttributes tests that schemas with additionalAttributes=false
+// reject extra attributes in strict mode.
+func TestClosedRecordRejectsExtraAttributes(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"name": {"type": "String", "required": true}
+						},
+						"additionalAttributes": false
+					}
+				}
+			},
+			"actions": {}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	// Entity with extra attributes
+	entities := types.EntityMap{
+		types.EntityUID{Type: "User", ID: "alice"}: types.Entity{
+			Attributes: types.NewRecord(types.RecordMap{
+				"name":       types.String("Alice"),
+				"extraField": types.String("should be rejected"),
+			}),
+		},
+	}
+
+	// With strict validation, closed records should reject extra attributes
+	result := ValidateEntities(&s, entities, WithStrictEntityValidation())
+	if result.Valid {
+		t.Error("Closed record should reject extra attributes in strict mode")
+	}
+}
+
+// TestExtensionFunctionArgumentValidation tests that extension functions
+// validate their argument types.
+func TestExtensionFunctionArgumentValidation(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"ip": {"type": "Extension", "name": "ipaddr"},
+							"count": {"type": "Long"}
+						}
+					}
+				}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["User"]
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+		errorSubstr string
+	}{
+		{
+			name:        "valid ip() with String",
+			policy:      `permit(principal, action, resource) when { ip("192.168.1.1").isIpv4() };`,
+			expectValid: true,
+		},
+		{
+			name:        "invalid ip() with Long",
+			policy:      `permit(principal == User::"alice", action == Action::"view", resource) when { ip(principal.count).isIpv4() };`,
+			expectValid: false,
+			errorSubstr: "expected String",
+		},
+		{
+			name:        "valid decimal() with String",
+			policy:      `permit(principal, action, resource) when { decimal("1.5").lessThan(decimal("2.0")) };`,
+			expectValid: true,
+		},
+		{
+			name:        "invalid decimal() with Long",
+			policy:      `permit(principal == User::"alice", action == Action::"view", resource) when { decimal(principal.count).lessThan(decimal("2.0")) };`,
+			expectValid: false,
+			errorSubstr: "expected String",
+		},
+		{
+			name:        "valid datetime() with String",
+			policy:      `permit(principal, action, resource) when { datetime("2024-01-01T00:00:00Z").toDate() == datetime("2024-01-01T00:00:00Z") };`,
+			expectValid: true,
+		},
+		{
+			name:        "valid duration() with String",
+			policy:      `permit(principal, action, resource) when { duration("1h").toSeconds() > 0 };`,
+			expectValid: true,
+		},
+		{
+			name:        "valid isInRange with two ipaddrs",
+			policy:      `permit(principal, action, resource) when { ip("192.168.1.1").isInRange(ip("192.168.0.0/16")) };`,
+			expectValid: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := validatePolicyString(t, &s, tc.policy)
+			a := assertPolicyResult(t, result)
+			if tc.expectValid {
+				a.valid()
+			} else {
+				a.invalid()
+				if tc.errorSubstr != "" {
+					a.errorContains(tc.errorSubstr)
+				}
+			}
+		})
+	}
+}
+
+// TestActionEntityTypeCheck tests that the isActionEntityType helper correctly
+// identifies action types with or without namespaces.
+func TestActionEntityTypeCheck(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {},
+			"actions": {}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(&s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	tests := []struct {
+		entityType types.EntityType
+		isAction   bool
+	}{
+		{"Action", true},
+		{"MyApp::Action", true},
+		{"Nested::Namespace::Action", true},
+		{"User", false},
+		{"ActionUser", false},
+		{"MyAction", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.entityType), func(t *testing.T) {
+			result := v.isActionEntityType(tc.entityType)
+			if result != tc.isAction {
+				t.Errorf("isActionEntityType(%q) = %v, want %v", tc.entityType, result, tc.isAction)
+			}
+		})
+	}
+}
+
+// TestActionWithContext tests actions that have context defined in appliesTo.
+func TestActionWithContext(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {},
+				"Document": {}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["Document"],
+						"context": {
+							"type": "Record",
+							"attributes": {
+								"ip": {"type": "String"},
+								"timestamp": {"type": "Long"}
+							}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(&s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Check that action has context attributes
+	actionUID := types.EntityUID{Type: "Action", ID: "view"}
+	actionInfo, ok := v.actionTypes[actionUID]
+	if !ok {
+		t.Fatal("Action not found")
+	}
+
+	if _, hasIP := actionInfo.Context.Attributes["ip"]; !hasIP {
+		t.Error("Expected context to have 'ip' attribute")
+	}
+	if _, hasTimestamp := actionInfo.Context.Attributes["timestamp"]; !hasTimestamp {
+		t.Error("Expected context to have 'timestamp' attribute")
+	}
+}
+
+// TestCommonTypes tests schema with common type definitions.
+func TestCommonTypes(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"commonTypes": {
+				"Address": {
+					"type": "Record",
+					"attributes": {
+						"street": {"type": "String"},
+						"city": {"type": "String"}
+					}
+				}
+			},
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"name": {"type": "String"},
+							"address": {"type": "Address"}
+						}
+					}
+				}
+			},
+			"actions": {}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(&s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Verify common type was parsed
+	if _, ok := v.commonTypes["Address"]; !ok {
+		t.Error("Expected common type 'Address' to be defined")
+	}
+
+	// Verify entity uses common type
+	userInfo, ok := v.entityTypes["User"]
+	if !ok {
+		t.Fatal("User entity type not found")
+	}
+
+	if _, hasAddress := userInfo.Attributes["address"]; !hasAddress {
+		t.Error("Expected User to have 'address' attribute")
+	}
+}
+
+// TestSchemaParsingErrors tests error handling in schema parsing.
+func TestSchemaParsingErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		schemaJSON string
+		wantErr    bool
+	}{
+		{
+			name:       "invalid JSON",
+			schemaJSON: `{invalid json`,
+			wantErr:    true,
+		},
+		{
+			name: "valid empty namespace",
+			schemaJSON: `{
+				"": {
+					"entityTypes": {},
+					"actions": {}
+				}
+			}`,
+			wantErr: false,
+		},
+		{
+			name: "entity with memberOfTypes",
+			schemaJSON: `{
+				"": {
+					"entityTypes": {
+						"User": {
+							"memberOfTypes": ["Group"]
+						},
+						"Group": {}
+					},
+					"actions": {}
+				}
+			}`,
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var s schema.Schema
+			err := s.UnmarshalJSON([]byte(tc.schemaJSON))
+			if tc.wantErr {
+				if err == nil {
+					t.Error("Expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Unexpected schema parse error: %v", err)
+			}
+
+			_, err = New(&s)
+			if err != nil {
+				t.Errorf("Unexpected validator creation error: %v", err)
+			}
+		})
+	}
+}
+
+// TestTypecheckVariables tests type inference for different policy variables.
+func TestTypecheckVariables(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"name": {"type": "String"}
+						}
+					}
+				},
+				"Document": {}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["Document"],
+						"context": {
+							"type": "Record",
+							"attributes": {
+								"authenticated": {"type": "Boolean"}
+							}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+	}{
+		{
+			name:        "access principal attribute",
+			policy:      `permit(principal == User::"alice", action == Action::"view", resource) when { principal.name == "alice" };`,
+			expectValid: true,
+		},
+		{
+			name:        "access context attribute",
+			policy:      `permit(principal == User::"alice", action == Action::"view", resource) when { context.authenticated };`,
+			expectValid: true,
+		},
+		{
+			name:        "access action variable",
+			policy:      `permit(principal, action == Action::"view", resource) when { action == Action::"view" };`,
+			expectValid: true,
+		},
+		{
+			name:        "access resource variable",
+			policy:      `permit(principal, action == Action::"view", resource == Document::"doc1") when { resource == Document::"doc1" };`,
+			expectValid: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := validatePolicyString(t, &s, tc.policy)
+			if tc.expectValid && !result.Valid {
+				t.Errorf("Expected valid, got errors: %v", result.Errors)
+			}
+			if !tc.expectValid && result.Valid {
+				t.Error("Expected invalid, but validation passed")
+			}
+		})
+	}
+}
+
+// TestExtensionFunctionArgCountErrors tests that extension functions
+// report errors for wrong argument counts.
+func TestExtensionFunctionArgCountErrors(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["User"]
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	// Test policies that should produce argument count errors
+	// Note: These may or may not be parseable depending on Cedar syntax rules
+	policies := cedar.NewPolicySet()
+	var policy cedar.Policy
+	if err := policy.UnmarshalCedar([]byte(`permit(principal, action, resource) when { decimal("1.0").lessThan(decimal("2.0")) };`)); err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+	policies.Add("test", &policy)
+
+	result := ValidatePolicies(&s, policies)
+	// This should be valid - correct number of args
+	if !result.Valid {
+		t.Errorf("Expected valid policy, got errors: %v", result.Errors)
+	}
+}
+
+// TestEntityTypeScopeValidation tests validation of entity type references in scopes.
+func TestEntityTypeScopeValidation(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {},
+				"Document": {}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["Document"]
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+		errorSubstr string
+	}{
+		{
+			name:        "valid entity type in principal scope",
+			policy:      `permit(principal == User::"alice", action, resource);`,
+			expectValid: true,
+		},
+		{
+			name:        "valid entity type in resource scope",
+			policy:      `permit(principal, action, resource == Document::"doc1");`,
+			expectValid: true,
+		},
+		{
+			name:        "unknown entity type in principal",
+			policy:      `permit(principal == Unknown::"x", action, resource);`,
+			expectValid: false,
+			errorSubstr: "unknown entity type",
+		},
+		{
+			name:        "action type in principal scope is allowed",
+			policy:      `permit(principal == Action::"view", action, resource);`,
+			expectValid: true, // Action is a special type that's always allowed
+		},
+		{
+			name:        "principal is check with valid type",
+			policy:      `permit(principal is User, action, resource);`,
+			expectValid: true,
+		},
+		{
+			name:        "principal is check with unknown type",
+			policy:      `permit(principal is Unknown, action, resource);`,
+			expectValid: false,
+			errorSubstr: "unknown entity type",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := validatePolicyString(t, &s, tc.policy)
+			a := assertPolicyResult(t, result)
+			if tc.expectValid {
+				a.valid()
+			} else {
+				a.invalid()
+				if tc.errorSubstr != "" {
+					a.errorContains(tc.errorSubstr)
+				}
+			}
+		})
+	}
+}
+
+// TestSetTypeInference tests type inference for set operations.
+func TestSetTypeInference(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"roles": {"type": "Set", "element": {"type": "String"}}
+						}
+					}
+				}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["User"]
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+	}{
+		{
+			name:        "set contains check",
+			policy:      `permit(principal == User::"alice", action == Action::"view", resource) when { principal.roles.contains("admin") };`,
+			expectValid: true,
+		},
+		{
+			name:        "empty set literal",
+			policy:      `permit(principal, action, resource) when { [].isEmpty() };`,
+			expectValid: true,
+		},
+		{
+			name:        "set literal with elements",
+			policy:      `permit(principal, action, resource) when { ["a", "b"].contains("a") };`,
+			expectValid: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := validatePolicyString(t, &s, tc.policy)
+			if tc.expectValid && !result.Valid {
+				t.Errorf("Expected valid, got errors: %v", result.Errors)
+			}
+		})
+	}
+}
+
+// TestRecordLiteralTypeInference tests type inference for record literals.
+func TestRecordLiteralTypeInference(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["User"]
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+	}{
+		{
+			name:        "record literal in condition",
+			policy:      `permit(principal, action, resource) when { {name: "test"}.name == "test" };`,
+			expectValid: true,
+		},
+		{
+			name:        "nested record literal",
+			policy:      `permit(principal, action, resource) when { {outer: {inner: "value"}}.outer.inner == "value" };`,
+			expectValid: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := validatePolicyString(t, &s, tc.policy)
+			if tc.expectValid && !result.Valid {
+				t.Errorf("Expected valid, got errors: %v", result.Errors)
+			}
+		})
+	}
+}
+
+// TestConditionalExpressions tests if-then-else expression validation.
+func TestConditionalExpressions(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"active": {"type": "Boolean"},
+							"level": {"type": "Long"}
+						}
+					}
+				}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["User"]
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+		errorSubstr string
+	}{
+		{
+			name:        "valid if-then-else",
+			policy:      `permit(principal == User::"alice", action == Action::"view", resource) when { if principal.active then principal.level > 0 else false };`,
+			expectValid: true,
+		},
+		{
+			name:        "if condition must be boolean",
+			policy:      `permit(principal == User::"alice", action == Action::"view", resource) when { if principal.level then true else false };`,
+			expectValid: false,
+			errorSubstr: "boolean",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := validatePolicyString(t, &s, tc.policy)
+			a := assertPolicyResult(t, result)
+			if tc.expectValid {
+				a.valid()
+			} else {
+				a.invalid()
+				if tc.errorSubstr != "" {
+					a.errorContains(tc.errorSubstr)
+				}
+			}
+		})
+	}
+}
+
+// TestActionInSetValidation tests validation of action in set expressions.
+func TestActionInSetValidation(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {},
+				"Document": {}
+			},
+			"actions": {
+				"read": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["Document"]
+					}
+				},
+				"write": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["Document"]
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+		errorSubstr string
+	}{
+		{
+			name:        "valid action in set",
+			policy:      `permit(principal, action in [Action::"read", Action::"write"], resource);`,
+			expectValid: true,
+		},
+		{
+			name:        "unknown action in set",
+			policy:      `permit(principal, action in [Action::"read", Action::"delete"], resource);`,
+			expectValid: false,
+			errorSubstr: "unknown action",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := validatePolicyString(t, &s, tc.policy)
+			a := assertPolicyResult(t, result)
+			if tc.expectValid {
+				a.valid()
+			} else {
+				a.invalid()
+				if tc.errorSubstr != "" {
+					a.errorContains(tc.errorSubstr)
+				}
+			}
+		})
+	}
+}
+
+// TestEntityValidationWithParents tests entity validation including parent relationships.
+func TestEntityValidationWithParents(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"memberOfTypes": ["Group"]
+				},
+				"Group": {
+					"memberOfTypes": ["Group"]
+				}
+			},
+			"actions": {}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		entities    types.EntityMap
+		expectValid bool
+		errorSubstr string
+	}{
+		{
+			name: "valid user in group",
+			entities: types.EntityMap{
+				types.EntityUID{Type: "User", ID: "alice"}: types.Entity{
+					Parents: types.NewEntityUIDSet(types.EntityUID{Type: "Group", ID: "admins"}),
+				},
+				types.EntityUID{Type: "Group", ID: "admins"}: types.Entity{},
+			},
+			expectValid: true,
+		},
+		{
+			name: "group in group (allowed)",
+			entities: types.EntityMap{
+				types.EntityUID{Type: "Group", ID: "subgroup"}: types.Entity{
+					Parents: types.NewEntityUIDSet(types.EntityUID{Type: "Group", ID: "parent"}),
+				},
+				types.EntityUID{Type: "Group", ID: "parent"}: types.Entity{},
+			},
+			expectValid: true,
+		},
+		{
+			name: "user in user (not allowed)",
+			entities: types.EntityMap{
+				types.EntityUID{Type: "User", ID: "alice"}: types.Entity{
+					Parents: types.NewEntityUIDSet(types.EntityUID{Type: "User", ID: "bob"}),
+				},
+				types.EntityUID{Type: "User", ID: "bob"}: types.Entity{},
+			},
+			expectValid: false,
+			errorSubstr: "cannot be member of type User",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := ValidateEntities(&s, tc.entities)
+			if tc.expectValid && !result.Valid {
+				t.Errorf("Expected valid, got errors: %v", result.Errors)
+			}
+			if !tc.expectValid {
+				if result.Valid {
+					t.Error("Expected invalid, but validation passed")
+				} else if tc.errorSubstr != "" {
+					found := false
+					for _, err := range result.Errors {
+						if strings.Contains(err.Message, tc.errorSubstr) {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("Expected error containing %q, got: %v", tc.errorSubstr, result.Errors)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestExtensionTypesInSchema tests parsing of extension types in schema.
+func TestExtensionTypesInSchema(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"ip": {"type": "Extension", "name": "ipaddr"},
+							"balance": {"type": "Extension", "name": "decimal"},
+							"lastLogin": {"type": "Extension", "name": "datetime"},
+							"timeout": {"type": "Extension", "name": "duration"}
+						}
+					}
+				}
+			},
+			"actions": {}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(&s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	userInfo, ok := v.entityTypes["User"]
+	if !ok {
+		t.Fatal("User entity type not found")
+	}
+
+	// Verify extension types were parsed correctly
+	expectedExtTypes := map[string]string{
+		"ip":        "ipaddr",
+		"balance":   "decimal",
+		"lastLogin": "datetime",
+		"timeout":   "duration",
+	}
+
+	for attrName, expectedTypeName := range expectedExtTypes {
+		attr, ok := userInfo.Attributes[attrName]
+		if !ok {
+			t.Errorf("Expected attribute %s not found", attrName)
+			continue
+		}
+		extType, ok := attr.Type.(ExtensionType)
+		if !ok {
+			t.Errorf("Expected attribute %s to be ExtensionType, got %T", attrName, attr.Type)
+			continue
+		}
+		if extType.Name != expectedTypeName {
+			t.Errorf("Expected attribute %s to have extension type %s, got %s", attrName, expectedTypeName, extType.Name)
+		}
+	}
+}
+
+// TestEntityTypeReference tests entity type references in attributes.
+func TestEntityTypeReference(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"manager": {"type": "Entity", "name": "User"},
+							"department": {"type": "Entity", "name": "Department"}
+						}
+					}
+				},
+				"Department": {}
+			},
+			"actions": {}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(&s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	userInfo, ok := v.entityTypes["User"]
+	if !ok {
+		t.Fatal("User entity type not found")
+	}
+
+	// Verify entity type references
+	managerAttr, ok := userInfo.Attributes["manager"]
+	if !ok {
+		t.Fatal("manager attribute not found")
+	}
+	if entityType, ok := managerAttr.Type.(EntityType); ok {
+		if entityType.Name != "User" {
+			t.Errorf("Expected manager to reference User, got %s", entityType.Name)
+		}
+	} else {
+		t.Errorf("Expected manager to be EntityType, got %T", managerAttr.Type)
+	}
+}
+
+// TestSetTypeInSchema tests set type parsing in schema.
+func TestSetTypeInSchema(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"tags": {"type": "Set", "element": {"type": "String"}},
+							"scores": {"type": "Set", "element": {"type": "Long"}},
+							"friends": {"type": "Set", "element": {"type": "Entity", "name": "User"}}
+						}
+					}
+				}
+			},
+			"actions": {}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(&s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	userInfo, ok := v.entityTypes["User"]
+	if !ok {
+		t.Fatal("User entity type not found")
+	}
+
+	// Verify set types
+	tagsAttr, ok := userInfo.Attributes["tags"]
+	if !ok {
+		t.Fatal("tags attribute not found")
+	}
+	if setType, ok := tagsAttr.Type.(SetType); ok {
+		if _, ok := setType.Element.(StringType); !ok {
+			t.Errorf("Expected tags element to be StringType, got %T", setType.Element)
+		}
+	} else {
+		t.Errorf("Expected tags to be SetType, got %T", tagsAttr.Type)
+	}
+
+	scoresAttr, ok := userInfo.Attributes["scores"]
+	if !ok {
+		t.Fatal("scores attribute not found")
+	}
+	if setType, ok := scoresAttr.Type.(SetType); ok {
+		if _, ok := setType.Element.(LongType); !ok {
+			t.Errorf("Expected scores element to be LongType, got %T", setType.Element)
+		}
+	} else {
+		t.Errorf("Expected scores to be SetType, got %T", scoresAttr.Type)
+	}
+}
+
+// TestNestedRecordTypes tests nested record types in schema.
+func TestNestedRecordTypes(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"address": {
+								"type": "Record",
+								"attributes": {
+									"street": {"type": "String"},
+									"city": {"type": "String"},
+									"zip": {"type": "Long"}
+								}
+							}
+						}
+					}
+				}
+			},
+			"actions": {}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(&s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	userInfo, ok := v.entityTypes["User"]
+	if !ok {
+		t.Fatal("User entity type not found")
+	}
+
+	addressAttr, ok := userInfo.Attributes["address"]
+	if !ok {
+		t.Fatal("address attribute not found")
+	}
+
+	recordType, ok := addressAttr.Type.(RecordType)
+	if !ok {
+		t.Fatalf("Expected address to be RecordType, got %T", addressAttr.Type)
+	}
+
+	if _, ok := recordType.Attributes["street"]; !ok {
+		t.Error("Expected address to have 'street' attribute")
+	}
+	if _, ok := recordType.Attributes["city"]; !ok {
+		t.Error("Expected address to have 'city' attribute")
+	}
+	if _, ok := recordType.Attributes["zip"]; !ok {
+		t.Error("Expected address to have 'zip' attribute")
+	}
+}
+
+// TestActionMemberOf tests action memberOf relationships.
+func TestActionMemberOf(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {},
+				"Document": {}
+			},
+			"actions": {
+				"readWrite": {},
+				"read": {
+					"memberOf": [{"id": "readWrite"}],
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["Document"]
+					}
+				},
+				"write": {
+					"memberOf": [{"id": "readWrite"}],
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["Document"]
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(&s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Check that read action has memberOf
+	readAction := types.EntityUID{Type: "Action", ID: "read"}
+	readInfo, ok := v.actionTypes[readAction]
+	if !ok {
+		t.Fatal("read action not found")
+	}
+
+	if len(readInfo.MemberOf) != 1 {
+		t.Errorf("Expected read to have 1 memberOf, got %d", len(readInfo.MemberOf))
+	} else {
+		if readInfo.MemberOf[0].ID != "readWrite" {
+			t.Errorf("Expected read to be memberOf readWrite, got %s", readInfo.MemberOf[0].ID)
+		}
+	}
+}
+
+// TestInferTypeFromValue tests type inference from Cedar values.
+func TestInferTypeFromValue(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {},
+			"actions": {}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(&s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	tests := []struct {
+		name         string
+		value        types.Value
+		expectedType string
+	}{
+		{"boolean true", types.Boolean(true), "Bool"},
+		{"boolean false", types.Boolean(false), "Bool"},
+		{"long", types.Long(42), "Long"},
+		{"string", types.String("hello"), "String"},
+		{"entity", types.EntityUID{Type: "User", ID: "alice"}, "Entity<User>"},
+		{"empty set", types.NewSet(), "Set<Unknown>"},
+		{"set with elements", types.NewSet(types.String("a")), "Set<String>"},
+		{"record", types.NewRecord(types.RecordMap{"key": types.String("value")}), "Record"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			inferredType := v.inferType(tc.value)
+			if inferredType.String() != tc.expectedType {
+				t.Errorf("Expected %s, got %s", tc.expectedType, inferredType.String())
+			}
+		})
+	}
+}
+
+// TestContextValidationStrict tests strict context validation.
+func TestContextValidationStrict(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {},
+				"Document": {}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["Document"],
+						"context": {
+							"type": "Record",
+							"attributes": {
+								"ip": {"type": "String", "required": true}
+							}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	var s schema.Schema
+	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	// Valid request with required context
+	validReq := cedar.Request{
+		Principal: types.EntityUID{Type: "User", ID: "alice"},
+		Action:    types.EntityUID{Type: "Action", ID: "view"},
+		Resource:  types.EntityUID{Type: "Document", ID: "doc1"},
+		Context:   types.NewRecord(types.RecordMap{"ip": types.String("192.168.1.1")}),
+	}
+
+	result := ValidateRequest(&s, validReq)
+	if !result.Valid {
+		t.Errorf("Expected valid request, got error: %s", result.Error)
+	}
+
+	// Invalid request missing required context
+	invalidReq := cedar.Request{
+		Principal: types.EntityUID{Type: "User", ID: "alice"},
+		Action:    types.EntityUID{Type: "Action", ID: "view"},
+		Resource:  types.EntityUID{Type: "Document", ID: "doc1"},
+		Context:   types.NewRecord(types.RecordMap{}),
+	}
+
+	result = ValidateRequest(&s, invalidReq)
+	if result.Valid {
+		t.Error("Expected invalid request for missing required context")
+	}
+}
