@@ -96,12 +96,12 @@ func (d Decimal) Compare(other Decimal) int {
 
 // ParseDecimal takes a string representation of a decimal number and converts it into a Decimal type.
 func ParseDecimal(s string) (Decimal, error) {
-	decimalIndex := strings.Index(s, ".")
-	if decimalIndex < 0 {
+	intPartStr, fracPartStr, found := strings.Cut(s, ".")
+	if !found {
 		return Decimal{}, fmt.Errorf("%w: missing decimal point", errDecimal)
 	}
 
-	intPart, err := strconv.ParseInt(s[0:decimalIndex], 10, 64)
+	intPart, err := strconv.ParseInt(intPartStr, 10, 64)
 	if err != nil {
 		if errors.Is(err, strconv.ErrRange) {
 			return Decimal{}, fmt.Errorf("%w: value would overflow", errDecimal)
@@ -109,7 +109,6 @@ func ParseDecimal(s string) (Decimal, error) {
 		return Decimal{}, fmt.Errorf("%w: %w", errDecimal, err)
 	}
 
-	fracPartStr := s[decimalIndex+1:]
 	fracPart, err := strconv.ParseUint(fracPartStr, 10, 16)
 	if err != nil {
 		if errors.Is(err, strconv.ErrRange) {

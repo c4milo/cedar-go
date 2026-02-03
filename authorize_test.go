@@ -822,7 +822,6 @@ func TestIsAuthorized(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.Name, func(t *testing.T) {
 			t.Parallel()
 			ps, err := cedar.NewPolicySetFromBytes("policy.cedar", []byte(tt.Policy))

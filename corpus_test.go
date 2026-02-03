@@ -141,7 +141,6 @@ func TestCorpus(t *testing.T) {
 	jsonSchemasFdm := loadTarGz(t, corpusJSONSchemasArchive)
 
 	for _, testFile := range testFiles {
-		testFile := testFile
 		t.Run(testFile, func(t *testing.T) {
 			t.Parallel()
 			testContent, err := fdm.GetFileData(testFile)
@@ -491,7 +490,6 @@ func TestCorpusRelated(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			policy, err := cedar.NewPolicySetFromBytes("", []byte(tt.policy))

@@ -163,7 +163,7 @@ func (p *parser) skipAtMostOnce(tok string) {
 	}
 }
 
-func (p *parser) errorf(s string, args ...interface{}) error {
+func (p *parser) errorf(s string, args ...any) error {
 	var t Token
 	if p.pos < len(p.tokens) {
 		t = p.tokens[p.pos]
