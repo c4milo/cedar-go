@@ -1032,3 +1032,317 @@ func (p *parser) access(lhs ast.Node) (ast.Node, bool, error) {
 		return lhs, false, nil
 	}
 }
+
+// Template parsing support
+
+func (ts *TemplateSlice) UnmarshalCedar(b []byte) error {
+	tokens, err := Tokenize(b)
+	if err != nil {
+		return err
+	}
+
+	var templateSlice TemplateSlice
+	parser := newParser(tokens)
+	for !parser.peek().isEOF() {
+		var template Template
+		if err = template.fromCedar(&parser); err != nil {
+			return err
+		}
+
+		templateSlice = append(templateSlice, &template)
+	}
+
+	*ts = templateSlice
+	return nil
+}
+
+func (t *Template) UnmarshalCedar(b []byte) error {
+	tokens, err := Tokenize(b)
+	if err != nil {
+		return err
+	}
+
+	parser := newParser(tokens)
+	return t.fromCedar(&parser)
+}
+
+func (t *Template) fromCedar(parser *parser) error {
+	pos := parser.peek().Pos
+	annotations, err := parser.annotations()
+	if err != nil {
+		return err
+	}
+
+	// Extract template ID from @id annotation if present
+	var templateID string
+	for _, ann := range annotations.Nodes() {
+		if string(ann.Key) == "id" {
+			templateID = string(ann.Value)
+			break
+		}
+	}
+
+	newTemplate, err := parser.templateEffect(&annotations, templateID)
+	if err != nil {
+		return err
+	}
+	newTemplate.Position = (ast.Position)(pos)
+
+	if err = parser.exact("("); err != nil {
+		return err
+	}
+	if err = parser.templatePrincipal(newTemplate); err != nil {
+		return err
+	}
+	if err = parser.exact(","); err != nil {
+		return err
+	}
+	if err = parser.templateAction(newTemplate); err != nil {
+		return err
+	}
+	if err = parser.exact(","); err != nil {
+		return err
+	}
+	if err = parser.templateResource(newTemplate); err != nil {
+		return err
+	}
+	parser.skipAtMostOnce(",")
+	if err = parser.exact(")"); err != nil {
+		return err
+	}
+	if err = parser.templateConditions(newTemplate); err != nil {
+		return err
+	}
+	if err = parser.exact(";"); err != nil {
+		return err
+	}
+
+	*t = *(*Template)(newTemplate)
+	return nil
+}
+
+func (p *parser) templateEffect(a *ast.Annotations, templateID string) (*ast.Template, error) {
+	next := p.advance()
+	var effect ast.Effect
+	switch next.Text {
+	case "permit":
+		effect = ast.EffectPermit
+	case "forbid":
+		effect = ast.EffectForbid
+	default:
+		return nil, p.errorf("unexpected effect: %v", next.Text)
+	}
+
+	template := ast.NewTemplate(templateID, effect)
+	template.Annotations = a.Nodes()
+	return template, nil
+}
+
+func (p *parser) templatePrincipal(template *ast.Template) error {
+	if err := p.exact(consts.Principal); err != nil {
+		return err
+	}
+	switch p.peek().Text {
+	case "==":
+		p.advance()
+		// Check for slot
+		if p.peek().isSlot() {
+			slotToken := p.advance()
+			if slotToken.Text != "?principal" {
+				return p.errorf("expected ?principal slot, got %s", slotToken.Text)
+			}
+			template.PrincipalEqSlot()
+			return nil
+		}
+		entity, err := p.entity()
+		if err != nil {
+			return err
+		}
+		template.Principal = ast.Scope{}.Eq(entity)
+		return nil
+	case "is":
+		p.advance()
+		path, err := p.path()
+		if err != nil {
+			return err
+		}
+		if p.peek().Text == "in" {
+			p.advance()
+			// Check for slot
+			if p.peek().isSlot() {
+				slotToken := p.advance()
+				if slotToken.Text != "?principal" {
+					return p.errorf("expected ?principal slot, got %s", slotToken.Text)
+				}
+				// For is+in+slot, we'd need a new scope type - for now treat as IsIn with slot
+				template.Principal = ast.ScopeTypeIsIn{Type: path}
+				if !template.HasSlot(ast.SlotPrincipal) {
+					template.Slots = append(template.Slots, ast.SlotPrincipal)
+				}
+				return nil
+			}
+			entity, err := p.entity()
+			if err != nil {
+				return err
+			}
+			template.Principal = ast.Scope{}.IsIn(path, entity)
+			return nil
+		}
+
+		template.Principal = ast.Scope{}.Is(path)
+		return nil
+	case "in":
+		p.advance()
+		// Check for slot
+		if p.peek().isSlot() {
+			slotToken := p.advance()
+			if slotToken.Text != "?principal" {
+				return p.errorf("expected ?principal slot, got %s", slotToken.Text)
+			}
+			template.PrincipalInSlot()
+			return nil
+		}
+		entity, err := p.entity()
+		if err != nil {
+			return err
+		}
+		template.Principal = ast.Scope{}.In(entity)
+		return nil
+	}
+
+	return nil
+}
+
+func (p *parser) templateAction(template *ast.Template) error {
+	if err := p.exact(consts.Action); err != nil {
+		return err
+	}
+	switch p.peek().Text {
+	case "==":
+		p.advance()
+		entity, err := p.entity()
+		if err != nil {
+			return err
+		}
+		template.ActionEq(entity)
+		return nil
+	case "in":
+		p.advance()
+		if p.peek().Text == "[" {
+			p.advance()
+			entities, err := p.entlist()
+			if err != nil {
+				return err
+			}
+			template.ActionInSet(entities...)
+			p.advance() // entlist guarantees "]"
+			return nil
+		}
+
+		entity, err := p.entity()
+		if err != nil {
+			return err
+		}
+		template.ActionIn(entity)
+		return nil
+	}
+
+	return nil
+}
+
+func (p *parser) templateResource(template *ast.Template) error {
+	if err := p.exact(consts.Resource); err != nil {
+		return err
+	}
+	switch p.peek().Text {
+	case "==":
+		p.advance()
+		// Check for slot
+		if p.peek().isSlot() {
+			slotToken := p.advance()
+			if slotToken.Text != "?resource" {
+				return p.errorf("expected ?resource slot, got %s", slotToken.Text)
+			}
+			template.ResourceEqSlot()
+			return nil
+		}
+		entity, err := p.entity()
+		if err != nil {
+			return err
+		}
+		template.Resource = ast.Scope{}.Eq(entity)
+		return nil
+	case "is":
+		p.advance()
+		path, err := p.path()
+		if err != nil {
+			return err
+		}
+		if p.peek().Text == "in" {
+			p.advance()
+			// Check for slot
+			if p.peek().isSlot() {
+				slotToken := p.advance()
+				if slotToken.Text != "?resource" {
+					return p.errorf("expected ?resource slot, got %s", slotToken.Text)
+				}
+				template.Resource = ast.ScopeTypeIsIn{Type: path}
+				if !template.HasSlot(ast.SlotResource) {
+					template.Slots = append(template.Slots, ast.SlotResource)
+				}
+				return nil
+			}
+			entity, err := p.entity()
+			if err != nil {
+				return err
+			}
+			template.Resource = ast.Scope{}.IsIn(path, entity)
+			return nil
+		}
+
+		template.Resource = ast.Scope{}.Is(path)
+		return nil
+	case "in":
+		p.advance()
+		// Check for slot
+		if p.peek().isSlot() {
+			slotToken := p.advance()
+			if slotToken.Text != "?resource" {
+				return p.errorf("expected ?resource slot, got %s", slotToken.Text)
+			}
+			template.ResourceInSlot()
+			return nil
+		}
+		entity, err := p.entity()
+		if err != nil {
+			return err
+		}
+		template.Resource = ast.Scope{}.In(entity)
+		return nil
+	}
+
+	return nil
+}
+
+func (p *parser) templateConditions(template *ast.Template) error {
+	for {
+		switch p.peek().Text {
+		case "when":
+			p.advance()
+			expr, err := p.condition()
+			if err != nil {
+				return err
+			}
+			template.When(expr)
+		case "unless":
+			p.advance()
+			expr, err := p.condition()
+			if err != nil {
+				return err
+			}
+			template.Unless(expr)
+		default:
+			return nil
+		}
+	}
+}
