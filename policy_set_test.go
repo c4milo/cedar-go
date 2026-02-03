@@ -188,10 +188,7 @@ func TestAll(t *testing.T) {
 			ps.Add(k, v)
 		}
 
-		got := map[cedar.PolicyID]*cedar.Policy{}
-		for k, v := range ps.All() {
-			got[k] = v
-		}
+		got := maps.Collect(ps.All())
 
 		testutil.Equals(t, policies, got)
 	})

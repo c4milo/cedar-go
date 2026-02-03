@@ -72,7 +72,7 @@ func TestLimitedEnv(t *testing.T) {
 		t.Parallel()
 		env := Env{}
 		le := NewLimitedEnv(env, NoLimits(), nil)
-		for i := 0; i < 10000; i++ {
+		for range 10000 {
 			err := le.IncrementConditions()
 			testutil.OK(t, err)
 		}
@@ -85,7 +85,7 @@ func TestLimitedEnv(t *testing.T) {
 		le := NewLimitedEnv(env, limits, nil)
 
 		// Should succeed for the first 5
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			err := le.IncrementConditions()
 			testutil.OK(t, err)
 		}

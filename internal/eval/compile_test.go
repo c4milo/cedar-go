@@ -89,7 +89,6 @@ func TestPolicyToNode(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := PolicyToNode(tt.in)
@@ -144,7 +143,6 @@ func TestScopeToNode(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := scopeToNode(tt.scope, tt.in)

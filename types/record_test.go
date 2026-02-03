@@ -177,10 +177,7 @@ func TestRecord(t *testing.T) {
 					t.Parallel()
 					record := types.NewRecord(tt.rm)
 
-					got := types.RecordMap{}
-					for k, v := range record.All() {
-						got[k] = v
-					}
+					got := maps.Collect(record.All())
 					testutil.Equals(t, got, tt.rm)
 				})
 

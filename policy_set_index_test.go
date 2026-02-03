@@ -77,11 +77,11 @@ func TestPolicySetIndexing(t *testing.T) {
 		// Add policies with different actions
 		for i := range 100 {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal,
 				action == Action::"action%d",
 				resource
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("policy%d", i)), &p)
 		}
 
@@ -109,22 +109,22 @@ func TestPolicySetIndexing(t *testing.T) {
 		principalTypes := []string{"User", "Admin", "Service", "Bot"}
 		for i, typ := range principalTypes {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal is %s,
 				action,
 				resource
-			);`, typ))))
+			);`, typ)))
 			ps.Add(PolicyID(fmt.Sprintf("policy%d", i)), &p)
 		}
 
 		// Add more policies to exceed threshold
 		for i := range 50 {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal == Other::"other%d",
 				action,
 				resource
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("other%d", i)), &p)
 		}
 
@@ -151,11 +151,11 @@ func TestPolicySetIndexing(t *testing.T) {
 		// Add policies with different resource types
 		for i := range 100 {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal,
 				action,
 				resource is Type%d
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("policy%d", i)), &p)
 		}
 
@@ -187,11 +187,11 @@ func TestPolicySetIndexing(t *testing.T) {
 		// Add specific policies
 		for i := range 60 {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal == User::"user%d",
 				action == Action::"action%d",
 				resource == Doc::"doc%d"
-			);`, i, i, i))))
+			);`, i, i, i)))
 			ps.Add(PolicyID(fmt.Sprintf("policy%d", i)), &p)
 		}
 
@@ -227,11 +227,11 @@ func TestPolicySetIndexing(t *testing.T) {
 		// Add filler policies
 		for i := range 60 {
 			var pf Policy
-			testutil.OK(t, pf.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, pf.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal,
 				action == Action::"other%d",
 				resource
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("filler%d", i)), &pf)
 		}
 
@@ -275,11 +275,11 @@ func TestPolicySetIndexing(t *testing.T) {
 		// Add filler policies
 		for i := range 60 {
 			var pf Policy
-			testutil.OK(t, pf.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, pf.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal == Other::"other%d",
 				action,
 				resource
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("filler%d", i)), &pf)
 		}
 
@@ -317,11 +317,11 @@ func TestPolicySetIndexing(t *testing.T) {
 		// Add filler policies with different types
 		for i := range 60 {
 			var pf Policy
-			testutil.OK(t, pf.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, pf.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal is Other%d,
 				action,
 				resource
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("filler%d", i)), &pf)
 		}
 
@@ -360,11 +360,11 @@ func TestPolicySetIndexing(t *testing.T) {
 		// Add policies with resource == specific entity (different types)
 		for i := range 60 {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal,
 				action,
 				resource == Type%d::"doc%d"
-			);`, i, i))))
+			);`, i, i)))
 			ps.Add(PolicyID(fmt.Sprintf("policy%d", i)), &p)
 		}
 
@@ -400,11 +400,11 @@ func TestPolicySetIndexing(t *testing.T) {
 		// Add filler policies
 		for i := range 60 {
 			var pf Policy
-			testutil.OK(t, pf.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, pf.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal,
 				action,
 				resource == Other::"other%d"
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("filler%d", i)), &pf)
 		}
 
@@ -442,11 +442,11 @@ func TestPolicySetIndexing(t *testing.T) {
 		// Add filler policies with different types
 		for i := range 60 {
 			var pf Policy
-			testutil.OK(t, pf.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, pf.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal,
 				action,
 				resource is Other%d
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("filler%d", i)), &pf)
 		}
 
@@ -494,11 +494,11 @@ func TestPolicySetIndexing(t *testing.T) {
 		// Add filler policies
 		for i := range 60 {
 			var pf Policy
-			testutil.OK(t, pf.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, pf.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal,
 				action == Action::"other%d",
 				resource
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("filler%d", i)), &pf)
 		}
 
@@ -536,11 +536,11 @@ func TestForRequestEdgeCases(t *testing.T) {
 		// Add specific action policies
 		for i := range 60 {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal,
 				action == Action::"action%d",
 				resource
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("policy%d", i)), &p)
 		}
 
@@ -600,11 +600,11 @@ func TestForRequestEdgeCases(t *testing.T) {
 		// Add type-specific policies
 		for i := range 60 {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal is Admin%d,
 				action,
 				resource
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("policy%d", i)), &p)
 		}
 
@@ -636,11 +636,11 @@ func TestForRequestEdgeCases(t *testing.T) {
 		// Add type-specific policies
 		for i := range 60 {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal,
 				action,
 				resource is Type%d
-			);`, i))))
+			);`, i)))
 			ps.Add(PolicyID(fmt.Sprintf("policy%d", i)), &p)
 		}
 
@@ -668,22 +668,22 @@ func TestForRequestEdgeCases(t *testing.T) {
 		// This triggers the "return false" path when checking across indexes
 		for i := range 30 {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal is Admin,
 				action == Action::"read",
 				resource
-			);`))))
+			);`)))
 			ps.Add(PolicyID(fmt.Sprintf("admin%d", i)), &p)
 		}
 
 		// Add policies that match principal type but NOT action
 		for i := range 30 {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal is User,
 				action == Action::"write",
 				resource
-			);`))))
+			);`)))
 			ps.Add(PolicyID(fmt.Sprintf("user%d", i)), &p)
 		}
 
@@ -722,11 +722,11 @@ func TestForRequestEdgeCases(t *testing.T) {
 		// Add many policies with same action (will be in indexed, not wildcards)
 		for i := range 100 {
 			var p Policy
-			testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+			testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 				principal,
 				action == Action::"read",
 				resource
-			);`))))
+			);`)))
 			ps.Add(PolicyID(fmt.Sprintf("policy%d", i)), &p)
 		}
 
@@ -766,11 +766,11 @@ func TestAuthorizeUsesIndex(t *testing.T) {
 	// Add 60 policies that won't match
 	for i := range 60 {
 		var p Policy
-		testutil.OK(t, p.UnmarshalCedar([]byte(fmt.Sprintf(`permit(
+		testutil.OK(t, p.UnmarshalCedar(fmt.Appendf(nil, `permit(
 			principal == User::"user%d",
 			action == Action::"action%d",
 			resource == Doc::"doc%d"
-		);`, i, i, i))))
+		);`, i, i, i)))
 		ps.Add(PolicyID(fmt.Sprintf("policy%d", i)), &p)
 	}
 

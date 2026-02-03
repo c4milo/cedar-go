@@ -50,7 +50,6 @@ func TestJSON_Value(t *testing.T) {
 		{"bool", `false`, Boolean(false), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var got Value
@@ -177,7 +176,6 @@ func Test_unmarshalExtensionValue(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			gotValue, gotErr := unmarshalExtensionValue([]byte(tt.in), tt.extName, tt.parse)
@@ -236,7 +234,6 @@ func TestJSONMarshal(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, err := json.Marshal(tt.in)

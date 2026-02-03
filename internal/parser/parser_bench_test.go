@@ -120,7 +120,7 @@ func BenchmarkParsePolicySet(b *testing.B) {
 	for _, count := range policyCounts {
 		b.Run(fmt.Sprintf("policies=%d", count), func(b *testing.B) {
 			var buf bytes.Buffer
-			for i := 0; i < count; i++ {
+			for i := range count {
 				fmt.Fprintf(&buf, `
 					@id("policy%d")
 					permit (

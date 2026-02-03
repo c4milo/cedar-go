@@ -252,7 +252,6 @@ func TestBatch(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 
 			var res []Result
@@ -694,7 +693,6 @@ func TestIgnoreReasons(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.Name, func(t *testing.T) {
 			t.Parallel()
 
@@ -756,7 +754,6 @@ func TestCloneSub(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, match := cloneSub(tt.in, tt.key, tt.value)
@@ -781,7 +778,6 @@ func TestFindVariables(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := mapset.Make[types.String]()

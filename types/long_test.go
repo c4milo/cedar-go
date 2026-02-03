@@ -44,7 +44,6 @@ func TestLong(t *testing.T) {
 		}
 
 		for ti, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("LessThan_%d_%v<%v", ti, tt.l, tt.r), func(t *testing.T) {
 				t.Parallel()
 				got, gotErr := tt.l.LessThan(tt.r)
@@ -74,7 +73,6 @@ func TestLong(t *testing.T) {
 		}
 
 		for ti, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("LessThanOrEqual_%d_%v<%v", ti, tt.l, tt.r), func(t *testing.T) {
 				t.Parallel()
 				got, gotErr := tt.l.LessThanOrEqual(tt.r)

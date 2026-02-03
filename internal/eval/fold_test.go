@@ -43,7 +43,6 @@ func TestFoldNode(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			out := fold(tt.in.AsIsNode())
 			testutil.Equals(t, out, tt.out.AsIsNode())
@@ -526,7 +525,6 @@ func TestFoldPolicy(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := foldPolicy(tt.in)

@@ -20,7 +20,6 @@ func TestParseUnicodeEscape(t *testing.T) {
 		{"notHex", []byte{'{', 'g'}, 0, 2, testutil.Error},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, n, err := parseUnicodeEscape(tt.in, 0)
@@ -42,7 +41,6 @@ func TestUnquote(t *testing.T) {
 		{"happy", `"test"`, `test`, testutil.OK},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, err := unquote(tt.in)
@@ -104,7 +102,6 @@ func TestRustUnquote(t *testing.T) {
 			{`\{0z`, false, "", "bad char escape"},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.input, func(t *testing.T) {
 				t.Parallel()
 				got, rem, err := Unquote([]byte(tt.input), false)
@@ -175,7 +172,6 @@ func TestRustUnquote(t *testing.T) {
 			{`\{0z`, false, "", "", "bad char escape"},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.input, func(t *testing.T) {
 				t.Parallel()
 				got, rem, err := Unquote([]byte(tt.input), true)
@@ -205,7 +201,6 @@ func TestDigitVal(t *testing.T) {
 		{"sad", 'g', 16},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := digitVal(tt.in)
@@ -255,7 +250,6 @@ func TestQuote(t *testing.T) {
 		{"mixed", "hello\nworld*!", true, `hello\nworld\*!`},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := Quote(tt.in, tt.star)
@@ -279,7 +273,6 @@ func TestQuoteUnquoteRoundTrip(t *testing.T) {
 		{"complex", "line1\nline2\twith\ttabs and unicode: café ☕", false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			quoted := Quote(tt.in, tt.star)
