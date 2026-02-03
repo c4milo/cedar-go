@@ -80,3 +80,13 @@ func TypeName(v types.Value) string {
 
 // ErrType is the error type for type errors.
 var ErrType = eval.ErrType
+
+// ignoreValue returns the ignore marker value.
+func ignoreValue() types.Value {
+	return eval.Ignore()
+}
+
+// isIgnoreValue checks if a value is the ignore marker.
+func isIgnoreValue(v types.Value) bool {
+	return eval.IsIgnore(v)
+}
