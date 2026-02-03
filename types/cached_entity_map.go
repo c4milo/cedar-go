@@ -11,16 +11,64 @@ type AncestryCache struct {
 }
 
 // NewAncestryCache computes and returns an ancestry cache for the given entities.
-// This performs a single traversal of the entity graph to compute the transitive
+// This performs a traversal of the entity graph to compute the transitive
 // closure of the parent relationship for all entities.
+//
+// The algorithm handles cycles correctly using a two-phase approach:
+// 1. Initial DFS with cycle detection (returns empty for back edges)
+// 2. Fixpoint iteration to propagate ancestors until stable
+//
+// Time complexity: O(V × E × k) where k is bounded by graph depth.
+// For typical Cedar hierarchies (shallow, mostly DAGs), k is small (1-2).
 func NewAncestryCache(entities EntityGetter, allUIDs func(yield func(EntityUID) bool)) *AncestryCache {
 	cache := &AncestryCache{
 		ancestors: make(map[EntityUID]EntityUIDSet),
 	}
 
-	// For each entity, compute its complete set of ancestors
+	// Phase 1: Initial computation with cycle detection
+	// Cycles cause incomplete results that will be fixed in phase 2
+	visiting := mapset.Make[EntityUID]()
 	for uid := range allUIDs {
-		cache.computeAncestors(entities, uid)
+		cache.computeAncestors(entities, uid, visiting)
+	}
+
+	// Phase 2: Fixpoint iteration for cycles
+	// Keep propagating ancestors until no set changes
+	for {
+		anyChanged := false
+		for uid := range allUIDs {
+			entity, ok := entities.Get(uid)
+			if !ok {
+				continue
+			}
+
+			current := cache.ancestors[uid]
+			newSet := mapset.Make[EntityUID]()
+
+			// Copy current ancestors
+			for a := range current.All() {
+				newSet.Add(a)
+			}
+
+			// Add parents and all their ancestors
+			for parent := range entity.Parents.All() {
+				newSet.Add(parent)
+				for a := range cache.ancestors[parent].All() {
+					newSet.Add(a)
+				}
+			}
+
+			// Only update if this entity's set actually changed
+			// (sets can only grow, so length comparison suffices)
+			if newSet.Len() != current.Len() {
+				cache.ancestors[uid] = NewEntityUIDSet(newSet.Slice()...)
+				anyChanged = true
+			}
+		}
+
+		if !anyChanged {
+			break
+		}
 	}
 
 	return cache
@@ -28,18 +76,27 @@ func NewAncestryCache(entities EntityGetter, allUIDs func(yield func(EntityUID) 
 
 // computeAncestors computes all ancestors for a single entity using memoization.
 // Returns the set of all ancestors (transitive closure of parents).
-func (c *AncestryCache) computeAncestors(entities EntityGetter, uid EntityUID) EntityUIDSet {
+// The visiting set tracks nodes currently being processed to detect cycles.
+func (c *AncestryCache) computeAncestors(entities EntityGetter, uid EntityUID, visiting *mapset.MapSet[EntityUID]) EntityUIDSet {
 	// Check if already computed
 	if ancestors, ok := c.ancestors[uid]; ok {
 		return ancestors
 	}
 
-	// Mark as in-progress with empty set to handle cycles
-	c.ancestors[uid] = EntityUIDSet{}
+	// Check if we're in a cycle
+	if visiting.Contains(uid) {
+		// Return empty set for now; cycle will be resolved by propagation
+		return EntityUIDSet{}
+	}
+
+	// Mark as visiting
+	visiting.Add(uid)
+	defer visiting.Remove(uid)
 
 	entity, ok := entities.Get(uid)
 	if !ok {
 		// Entity doesn't exist, no ancestors
+		c.ancestors[uid] = EntityUIDSet{}
 		return c.ancestors[uid]
 	}
 
@@ -49,7 +106,7 @@ func (c *AncestryCache) computeAncestors(entities EntityGetter, uid EntityUID) E
 		// Add direct parent
 		ancestorSet.Add(parent)
 		// Add all ancestors of parent (recursive with memoization)
-		parentAncestors := c.computeAncestors(entities, parent)
+		parentAncestors := c.computeAncestors(entities, parent, visiting)
 		for ancestor := range parentAncestors.All() {
 			ancestorSet.Add(ancestor)
 		}
