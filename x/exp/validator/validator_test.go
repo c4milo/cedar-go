@@ -4604,8 +4604,8 @@ func TestStrictEntityValidation(t *testing.T) {
 	entities := types.EntityMap{
 		types.EntityUID{Type: "User", ID: "alice"}: types.Entity{
 			Attributes: types.NewRecord(types.RecordMap{
-				"name":        types.String("Alice"),
-				"extraField":  types.String("should not be here"),
+				"name":       types.String("Alice"),
+				"extraField": types.String("should not be here"),
 			}),
 		},
 	}
