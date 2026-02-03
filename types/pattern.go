@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
+
+	"github.com/cedar-policy/cedar-go/internal/rust"
 )
 
 var errJSONInvalidPatternComponent = fmt.Errorf("invalid pattern component")
@@ -59,11 +59,8 @@ func (p Pattern) MarshalCedar() []byte {
 		if comp.Wildcard {
 			buf.WriteRune('*')
 		}
-		// TODO: This is wrong. It needs to escape unicode the Rustic way.
-		quotedString := strconv.Quote(comp.Literal)
-		quotedString = quotedString[1 : len(quotedString)-1]
-		quotedString = strings.ReplaceAll(quotedString, "*", "\\*")
-		buf.WriteString(quotedString)
+		// Use Rust/Cedar style escaping with \u{XXXX} for unicode
+		buf.WriteString(rust.Quote(comp.Literal, true))
 	}
 	buf.WriteRune('"')
 	return buf.Bytes()

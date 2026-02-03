@@ -159,6 +159,16 @@ func TestASTByTable(t *testing.T) {
 			ast.Policy{Effect: ast.EffectPermit, Principal: ast.ScopeTypeAll{}, Action: ast.ScopeTypeInSet{Entities: []types.EntityUID{types.NewEntityUID("T", "42"), types.NewEntityUID("T", "43")}}, Resource: ast.ScopeTypeAll{}},
 		},
 		{
+			"scopeActionIs",
+			ast.Permit().ActionIs("Action"),
+			ast.Policy{Effect: ast.EffectPermit, Principal: ast.ScopeTypeAll{}, Action: ast.ScopeTypeIs{Type: types.EntityType("Action")}, Resource: ast.ScopeTypeAll{}},
+		},
+		{
+			"scopeActionIsIn",
+			ast.Permit().ActionIsIn("Action", types.NewEntityUID("Action", "view")),
+			ast.Policy{Effect: ast.EffectPermit, Principal: ast.ScopeTypeAll{}, Action: ast.ScopeTypeIsIn{Type: types.EntityType("Action"), Entity: types.NewEntityUID("Action", "view")}, Resource: ast.ScopeTypeAll{}},
+		},
+		{
 			"scopeResourceEq",
 			ast.Permit().ResourceEq(types.NewEntityUID("T", "42")),
 			ast.Policy{Effect: ast.EffectPermit, Principal: ast.ScopeTypeAll{}, Action: ast.ScopeTypeAll{}, Resource: ast.ScopeTypeEq{Entity: types.NewEntityUID("T", "42")}},
@@ -579,5 +589,23 @@ func TestASTByTable(t *testing.T) {
 			t.Parallel()
 			testutil.Equals(t, tt.in, &tt.out)
 		})
+	}
+}
+
+func TestAnnotationsNodes(t *testing.T) {
+	t.Parallel()
+
+	// Test that Nodes() returns the annotations correctly
+	annotations := ast.Annotation("key1", "value1").Annotation("key2", "value2")
+	nodes := annotations.Nodes()
+
+	if len(nodes) != 2 {
+		t.Fatalf("Expected 2 nodes, got %d", len(nodes))
+	}
+	if string(nodes[0].Key) != "key1" || string(nodes[0].Value) != "value1" {
+		t.Errorf("Expected key1:value1, got %s:%s", nodes[0].Key, nodes[0].Value)
+	}
+	if string(nodes[1].Key) != "key2" || string(nodes[1].Value) != "value2" {
+		t.Errorf("Expected key2:value2, got %s:%s", nodes[1].Key, nodes[1].Value)
 	}
 }

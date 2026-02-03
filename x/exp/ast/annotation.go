@@ -32,6 +32,11 @@ func (a *Annotations) Annotation(key types.Ident, value types.String) *Annotatio
 	return a
 }
 
+// Nodes returns the annotation nodes. This is primarily for internal use by the parser.
+func (a *Annotations) Nodes() []AnnotationType {
+	return a.nodes
+}
+
 func (a *Annotations) Permit() *Policy {
 	return newPolicy(EffectPermit, a.nodes)
 }
