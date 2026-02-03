@@ -65,6 +65,16 @@ func (p *Policy) ActionInSet(entities ...types.EntityUID) *Policy {
 	return p
 }
 
+func (p *Policy) ActionIs(entityType types.EntityType) *Policy {
+	p.Action = Scope{}.Is(entityType)
+	return p
+}
+
+func (p *Policy) ActionIsIn(entityType types.EntityType, entity types.EntityUID) *Policy {
+	p.Action = Scope{}.IsIn(entityType, entity)
+	return p
+}
+
 func (p *Policy) ResourceEq(entity types.EntityUID) *Policy {
 	p.Resource = Scope{}.Eq(entity)
 	return p
@@ -152,6 +162,7 @@ type ScopeTypeInSet struct {
 type ScopeTypeIs struct {
 	ScopeNode
 	PrincipalScopeNode
+	ActionScopeNode
 	ResourceScopeNode
 	Type types.EntityType
 }
@@ -159,6 +170,7 @@ type ScopeTypeIs struct {
 type ScopeTypeIsIn struct {
 	ScopeNode
 	PrincipalScopeNode
+	ActionScopeNode
 	ResourceScopeNode
 	Type   types.EntityType
 	Entity types.EntityUID

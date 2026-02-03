@@ -364,6 +364,77 @@ func (n NodeTypeIf) marshalCedar(buf *bytes.Buffer) {
 	marshalChildNode(n.precedenceLevel(), n.Else, buf)
 }
 
+// Template marshaling support
+
+func (t *Template) MarshalCedar(buf *bytes.Buffer) {
+	for _, a := range t.Annotations {
+		marshalAnnotation(a, buf)
+		buf.WriteRune('\n')
+	}
+	marshalEffect(t.Effect, buf)
+	buf.WriteRune(' ')
+	t.marshalScope(buf)
+
+	for _, c := range t.Conditions {
+		buf.WriteRune('\n')
+		marshalCondition(c, buf)
+	}
+
+	buf.WriteRune(';')
+}
+
+func (t *Template) marshalScope(buf *bytes.Buffer) {
+	_, principalAll := t.Principal.(ast.ScopeTypeAll)
+	_, actionAll := t.Action.(ast.ScopeTypeAll)
+	_, resourceAll := t.Resource.(ast.ScopeTypeAll)
+	if principalAll && actionAll && resourceAll {
+		buf.WriteString("( " + consts.Principal + ", " + consts.Action + ", " + consts.Resource + " )")
+		return
+	}
+
+	buf.WriteString("(\n    ")
+	if principalAll {
+		buf.WriteString(consts.Principal)
+	} else {
+		t.marshalPrincipalScope(buf)
+	}
+	buf.WriteString(",\n    ")
+	if actionAll {
+		buf.WriteString(consts.Action)
+	} else {
+		astNodeToMarshalNode(scopeToNode(ast.NewActionNode(), t.Action).AsIsNode()).marshalCedar(buf)
+	}
+	buf.WriteString(",\n    ")
+	if resourceAll {
+		buf.WriteString(consts.Resource)
+	} else {
+		t.marshalResourceScope(buf)
+	}
+	buf.WriteString("\n)")
+}
+
+func (t *Template) marshalPrincipalScope(buf *bytes.Buffer) {
+	switch s := t.Principal.(type) {
+	case ast.ScopeTypeSlot:
+		buf.WriteString(consts.Principal + " == " + string(s.SlotID))
+	case ast.ScopeTypeSlotIn:
+		buf.WriteString(consts.Principal + " in " + string(s.SlotID))
+	default:
+		astNodeToMarshalNode(scopeToNode(ast.NewPrincipalNode(), t.Principal).AsIsNode()).marshalCedar(buf)
+	}
+}
+
+func (t *Template) marshalResourceScope(buf *bytes.Buffer) {
+	switch s := t.Resource.(type) {
+	case ast.ScopeTypeSlot:
+		buf.WriteString(consts.Resource + " == " + string(s.SlotID))
+	case ast.ScopeTypeSlotIn:
+		buf.WriteString(consts.Resource + " in " + string(s.SlotID))
+	default:
+		astNodeToMarshalNode(scopeToNode(ast.NewResourceNode(), t.Resource).AsIsNode()).marshalCedar(buf)
+	}
+}
+
 func astNodeToMarshalNode(astNode ast.IsNode) IsNode {
 	switch v := astNode.(type) {
 	case ast.NodeTypeIfThenElse:

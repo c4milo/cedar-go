@@ -27,6 +27,7 @@ const (
 	TokenReservedKeyword
 	TokenString
 	TokenOperator
+	TokenSlot // Template slot: ?principal, ?resource
 	TokenUnknown
 )
 
@@ -58,6 +59,10 @@ func (t Token) isReservedKeyword() bool {
 
 func (t Token) isString() bool {
 	return t.Type == TokenString
+}
+
+func (t Token) isSlot() bool {
+	return t.Type == TokenSlot
 }
 
 func (t Token) stringValue() (string, error) {
@@ -459,6 +464,15 @@ redo:
 	switch {
 	case ch == specialRuneEOF:
 		tt = TokenEOF
+	case ch == '?':
+		// Template slot: ?principal or ?resource
+		ch = s.next()
+		if isIdentRune(ch, true) {
+			ch = s.scanIdentifier()
+			tt = TokenSlot
+		} else {
+			tt = TokenUnknown
+		}
 	case isIdentRune(ch, true):
 		ch = s.scanIdentifier()
 		tt = TokenIdent
