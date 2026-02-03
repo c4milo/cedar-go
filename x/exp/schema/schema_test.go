@@ -162,7 +162,7 @@ func TestSchemaJSONMarshalUnmarshal(t *testing.T) {
 			}
 
 			// Verify JSON validity
-			var raw interface{}
+			var raw any
 			if err := json.Unmarshal(out, &raw); err != nil {
 				t.Errorf("MarshalJSON() produced invalid JSON: %v", err)
 			}

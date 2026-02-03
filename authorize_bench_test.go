@@ -65,10 +65,7 @@ func BenchmarkCorpusAuthorize(b *testing.B) {
 	}
 
 	// Use first 10 test files for benchmarking
-	maxTests := 10
-	if len(testFiles) < maxTests {
-		maxTests = len(testFiles)
-	}
+	maxTests := min(10, len(testFiles))
 
 	type corpusTestFile struct {
 		Policies string `json:"policies"`
@@ -424,10 +421,12 @@ func BenchmarkAuthorizeAttributeAccess(b *testing.B) {
 			ps := NewPolicySet()
 
 			// Build condition that accesses multiple attributes
-			condition := "context.attr0 == true"
+			var sb strings.Builder
+			sb.WriteString("context.attr0 == true")
 			for i := 1; i < count; i++ {
-				condition += fmt.Sprintf(" && context.attr%d == true", i)
+				fmt.Fprintf(&sb, " && context.attr%d == true", i)
 			}
+			condition := sb.String()
 
 			policyText := fmt.Sprintf(`
 				permit (

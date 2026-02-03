@@ -41,7 +41,7 @@ func TestConvertHumanToJson(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error reading example JSON schema: %v", err)
 	}
-	var gotJ, wantJ interface{}
+	var gotJ, wantJ any
 	testutil.OK(t, json.Unmarshal(want, &wantJ))
 	testutil.OK(t, json.Unmarshal(got.Bytes(), &gotJ))
 	diff := cmp.Diff(gotJ, wantJ)

@@ -16,6 +16,7 @@ package ast
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/cedar-policy/cedar-go/types"
 )
@@ -212,12 +213,7 @@ func (t *Template) Annotate(key types.Ident, value types.String) *Template {
 
 // HasSlot checks if a slot is already in the slots list.
 func (t *Template) HasSlot(slot SlotID) bool {
-	for _, s := range t.Slots {
-		if s == slot {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(t.Slots, slot)
 }
 
 // Link creates a linked policy from this template with the given values.

@@ -104,7 +104,7 @@ func UnmarshalJSON(b []byte, v *Value) error {
 		}
 	}
 
-	var res interface{}
+	var res any
 	dec := json.NewDecoder(bytes.NewBuffer(b))
 	dec.UseNumber()
 	if err := dec.Decode(&res); err != nil {

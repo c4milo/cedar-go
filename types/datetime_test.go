@@ -65,7 +65,6 @@ func TestDatetime(t *testing.T) {
 			{"-292275055-05-17T17:47:04.192+0100", "-292275055-05-17T16:47:04.192Z"},
 		}
 		for ti, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%d_%s->%s", ti, tt.in, tt.out), func(t *testing.T) {
 				t.Parallel()
 				d, err := types.ParseDatetime(tt.in)
@@ -150,7 +149,6 @@ func TestDatetime(t *testing.T) {
 			{"-292275055-05-17T17:47:04.191+0100", "error parsing datetime value: timestamp out of range"},
 		}
 		for ti, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%d_%s->%s", ti, tt.in, tt.errStr), func(t *testing.T) {
 				t.Parallel()
 				_, err := types.ParseDatetime(tt.in)
@@ -207,7 +205,6 @@ func TestDatetime(t *testing.T) {
 		}
 
 		for ti, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("LessThan_%d_%v<%v", ti, tt.l, tt.r), func(t *testing.T) {
 				t.Parallel()
 				got, gotErr := tt.l.LessThan(tt.r)
@@ -237,7 +234,6 @@ func TestDatetime(t *testing.T) {
 		}
 
 		for ti, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("LessThanOrEqual_%d_%v<%v", ti, tt.l, tt.r), func(t *testing.T) {
 				t.Parallel()
 				got, gotErr := tt.l.LessThanOrEqual(tt.r)
@@ -266,7 +262,6 @@ func TestDatetime(t *testing.T) {
 			{-10000, 12, 31, `datetime("-000010000-12-31T00:00:00.000Z")`},
 		}
 		for ti, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%d_year=%d", ti, tt.year), func(t *testing.T) {
 				t.Parallel()
 				dt := types.NewDatetime(time.Date(tt.year, time.Month(tt.month), tt.day, 0, 0, 0, 0, time.UTC))

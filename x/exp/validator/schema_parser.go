@@ -17,6 +17,7 @@ package validator
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"github.com/cedar-policy/cedar-go/types"
 )
@@ -264,9 +265,7 @@ func (v *Validator) parseActionContext(info *ActionTypeInfo, nsName, actionName 
 		return fmt.Errorf("failed to parse action %s context: %w", actionName, err)
 	}
 	// Merge with existing context (from appliesTo)
-	for attrName, at := range ctx.Attributes {
-		info.Context.Attributes[attrName] = at
-	}
+	maps.Copy(info.Context.Attributes, ctx.Attributes)
 	return nil
 }
 
