@@ -26,6 +26,9 @@ type Env struct {
 	Entities                    types.EntityGetter
 	Principal, Action, Resource types.Value
 	Context                     types.Value
+	// Limits optionally configures resource limits for evaluation.
+	// Nil means no limits are applied.
+	Limits *Limits
 }
 
 type Evaler interface {
@@ -932,17 +935,35 @@ func newInEval(lhs, rhs Evaler) Evaler {
 	return &inEval{lhs: lhs, rhs: rhs}
 }
 
-func entityInOne(env Env, entity types.EntityUID, parent types.EntityUID) bool {
+func entityInOne(env Env, entity types.EntityUID, parent types.EntityUID) (bool, error) {
 	if entity == parent {
-		return true
+		return true, nil
 	}
+
+	// Fast path: use cached ancestry if available
+	if cached, ok := env.Entities.(types.AncestryCacheGetter); ok {
+		return cached.GetAncestryCache().IsAncestor(entity, parent), nil
+	}
+
+	// Slow path: BFS traversal with optional depth limit
 	var known mapset.MapSet[types.EntityUID]
 	var todo []types.EntityUID
 	var candidate = entity
+	depth := 0
+	maxDepth := 0
+	if env.Limits != nil && env.Limits.MaxEntityGraphDepth > 0 {
+		maxDepth = env.Limits.MaxEntityGraphDepth
+	}
 	for {
+		if maxDepth > 0 {
+			depth++
+			if depth > maxDepth {
+				return false, ErrEntityDepthExceeded
+			}
+		}
 		if fe, ok := env.Entities.Get(candidate); ok {
 			if fe.Parents.Contains(parent) {
-				return true
+				return true, nil
 			}
 			for k := range fe.Parents.All() {
 				p, ok := env.Entities.Get(k)
@@ -954,23 +975,42 @@ func entityInOne(env Env, entity types.EntityUID, parent types.EntityUID) bool {
 			}
 		}
 		if len(todo) == 0 {
-			return false
+			return false, nil
 		}
 		candidate, todo = todo[len(todo)-1], todo[:len(todo)-1]
 	}
 }
 
-func entityInSet(env Env, entity types.EntityUID, parents mapset.Container[types.EntityUID]) bool {
+func entityInSet(env Env, entity types.EntityUID, parents mapset.Container[types.EntityUID]) (bool, error) {
 	if parents.Contains(entity) {
-		return true
+		return true, nil
 	}
+
+	// Fast path: use cached ancestry if available
+	if cached, ok := env.Entities.(types.AncestryCacheGetter); ok {
+		ancestors := cached.GetAncestryCache().GetAncestors(entity)
+		return ancestors.Intersects(parents), nil
+	}
+
+	// Slow path: BFS traversal with optional depth limit
 	var known mapset.MapSet[types.EntityUID]
 	var todo []types.EntityUID
 	var candidate = entity
+	depth := 0
+	maxDepth := 0
+	if env.Limits != nil && env.Limits.MaxEntityGraphDepth > 0 {
+		maxDepth = env.Limits.MaxEntityGraphDepth
+	}
 	for {
+		if maxDepth > 0 {
+			depth++
+			if depth > maxDepth {
+				return false, ErrEntityDepthExceeded
+			}
+		}
 		if fe, ok := env.Entities.Get(candidate); ok {
 			if fe.Parents.Intersects(parents) {
-				return true
+				return true, nil
 			}
 			for k := range fe.Parents.All() {
 				p, ok := env.Entities.Get(k)
@@ -982,7 +1022,7 @@ func entityInSet(env Env, entity types.EntityUID, parents mapset.Container[types
 			}
 		}
 		if len(todo) == 0 {
-			return false
+			return false, nil
 		}
 		candidate, todo = todo[len(todo)-1], todo[:len(todo)-1]
 	}
@@ -1005,7 +1045,11 @@ func (n *inEval) Eval(env Env) (types.Value, error) {
 func doInEval(env Env, lhs types.EntityUID, rhs types.Value) (types.Value, error) {
 	switch rhsv := rhs.(type) {
 	case types.EntityUID:
-		return types.Boolean(entityInOne(env, lhs, rhsv)), nil
+		result, err := entityInOne(env, lhs, rhsv)
+		if err != nil {
+			return zeroValue(), err
+		}
+		return types.Boolean(result), nil
 	case types.Set:
 		query := mapset.Make[types.EntityUID](rhsv.Len())
 		for rhv := range rhsv.All() {
@@ -1015,7 +1059,11 @@ func doInEval(env Env, lhs types.EntityUID, rhs types.Value) (types.Value, error
 			}
 			query.Add(e)
 		}
-		return types.Boolean(entityInSet(env, lhs, query)), nil
+		result, err := entityInSet(env, lhs, query)
+		if err != nil {
+			return zeroValue(), err
+		}
+		return types.Boolean(result), nil
 	}
 	return zeroValue(), fmt.Errorf(
 		"%w: expected one of [set, (entity of type `any_entity_type`)], got %v", ErrType, TypeName(rhs))

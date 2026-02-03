@@ -1857,7 +1857,8 @@ func TestEntityIn(t *testing.T) {
 					Parents: types.NewEntityUIDSet(ps...),
 				}
 			}
-			res := entityInSet(Env{Entities: entityMap}, strEnt(tt.lhs), types.NewEntityUIDSet(rhs...))
+			res, err := entityInSet(Env{Entities: entityMap}, strEnt(tt.lhs), types.NewEntityUIDSet(rhs...))
+			testutil.OK(t, err)
 			testutil.Equals(t, res, tt.result)
 		})
 	}
@@ -1882,11 +1883,12 @@ func TestEntityIn(t *testing.T) {
 			}
 
 		}
-		res := entityInSet(
+		res, err := entityInSet(
 			Env{Entities: entityMap},
 			types.NewEntityUID("0", "1"),
 			types.NewEntityUIDSet(types.NewEntityUID("0", "3")),
 		)
+		testutil.OK(t, err)
 		testutil.Equals(t, res, false)
 	})
 }
