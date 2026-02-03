@@ -366,7 +366,6 @@ func TestToEval(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, err := Eval(tt.in.AsIsNode(), Env{
@@ -610,7 +609,6 @@ func TestPartialPolicy(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, keep := PartialPolicy(tt.env, tt.in)
@@ -639,7 +637,6 @@ func TestToVariable(t *testing.T) {
 		{"nil", nil, "", false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			key, out := ToVariable(tt.in)
@@ -662,7 +659,6 @@ func TestToPartialError(t *testing.T) {
 		{"otherNode", ast.NodeValue{Value: types.String("err")}, nil, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := ToPartialError(tt.in)
@@ -692,7 +688,6 @@ func TestTypeName(t *testing.T) {
 		{"nil", nil, "unknown type"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := TypeName(tt.in)

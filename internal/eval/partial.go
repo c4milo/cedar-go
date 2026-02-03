@@ -139,14 +139,32 @@ func partialScopeEval(env Env, ent types.Value, in ast.IsScopeNode) (evaled bool
 	case ast.ScopeTypeEq:
 		return true, e == t.Entity
 	case ast.ScopeTypeIn:
-		return true, entityInOne(env, e, t.Entity)
+		res, err := entityInOne(env, e, t.Entity)
+		if err != nil {
+			// Depth limit exceeded - treat as not evaluable
+			return false, false
+		}
+		return true, res
 	case ast.ScopeTypeInSet:
 		set := mapset.Immutable(t.Entities...)
-		return true, entityInSet(env, e, set)
+		res, err := entityInSet(env, e, set)
+		if err != nil {
+			// Depth limit exceeded - treat as not evaluable
+			return false, false
+		}
+		return true, res
 	case ast.ScopeTypeIs:
 		return true, e.Type == t.Type
 	case ast.ScopeTypeIsIn:
-		return true, e.Type == t.Type && entityInOne(env, e, t.Entity)
+		if e.Type != t.Type {
+			return true, false
+		}
+		res, err := entityInOne(env, e, t.Entity)
+		if err != nil {
+			// Depth limit exceeded - treat as not evaluable
+			return false, false
+		}
+		return true, res
 	default:
 		panic(fmt.Sprintf("unknown scope type %T", t))
 	}
