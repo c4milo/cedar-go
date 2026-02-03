@@ -44,7 +44,6 @@ func TestDuration(t *testing.T) {
 			{"-2m3600s", "-1h2m"},
 		}
 		for ti, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%d_%s->%s", ti, tt.in, tt.out), func(t *testing.T) {
 				t.Parallel()
 				d, err := types.ParseDuration(tt.in)
@@ -71,7 +70,6 @@ func TestDuration(t *testing.T) {
 			{"999999999999999999999ms", "error parsing duration value: overflow"},
 		}
 		for ti, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%d_%s->%s", ti, tt.in, tt.errStr), func(t *testing.T) {
 				t.Parallel()
 				_, err := types.ParseDuration(tt.in)
@@ -101,7 +99,6 @@ func TestDuration(t *testing.T) {
 			{"minMinusOne", types.NewDurationFromMillis(math.MinInt64/1000 - 1), 0, testutil.Error},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				out, err := tt.in.Duration()
@@ -143,7 +140,6 @@ func TestDuration(t *testing.T) {
 		}
 
 		for ti, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("LessThan_%d_%v<%v", ti, tt.l, tt.r), func(t *testing.T) {
 				t.Parallel()
 				got, gotErr := tt.l.LessThan(tt.r)
@@ -173,7 +169,6 @@ func TestDuration(t *testing.T) {
 		}
 
 		for ti, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("LessThanOrEqual_%d_%v<%v", ti, tt.l, tt.r), func(t *testing.T) {
 				t.Parallel()
 				got, gotErr := tt.l.LessThanOrEqual(tt.r)

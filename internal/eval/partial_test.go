@@ -140,7 +140,6 @@ func TestPartialScopeEval(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			tt.env.Entities = types.EntityMap{}
@@ -445,7 +444,6 @@ func TestPartialPolicy(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, keep := PartialPolicy(tt.env, tt.in)
@@ -497,7 +495,6 @@ func TestPartialIfThenElse(t *testing.T) {
 		{"ifKeepErrorError", ast.IfThenElse(keepN, errorN, errorN), ast.IfThenElse(keepN, ast.ExtensionCall(partialErrorName, ast.String("type error: expected comparable value, got string")), ast.ExtensionCall(partialErrorName, ast.String("type error: expected comparable value, got string"))), testutil.OK},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			n, ok := tt.in.AsIsNode().(ast.NodeTypeIfThenElse)
 			testutil.Equals(t, ok, true)
@@ -561,7 +558,6 @@ func TestPartialAnd(t *testing.T) {
 		{"andErrorError", errorN.And(errorN), nil, testutil.Error},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			n, ok := tt.in.AsIsNode().(ast.NodeTypeAnd)
 			testutil.Equals(t, ok, true)
@@ -625,7 +621,6 @@ func TestPartialOr(t *testing.T) {
 		{"orErrorError", errorN.Or(errorN), nil, testutil.Error},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			n, ok := tt.in.AsIsNode().(ast.NodeTypeOr)
 			testutil.Equals(t, ok, true)
@@ -1283,7 +1278,6 @@ func TestPartialBasic(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, err := partial((Env{
@@ -1339,7 +1333,6 @@ func TestPartialWithContext(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, err := partial((Env{
@@ -1385,7 +1378,6 @@ func TestPartialErrorEval(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, err := tt.in.Eval(tt.env)
@@ -1432,7 +1424,6 @@ func TestPartialHasEval(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, err := tt.in.Eval(tt.env)
@@ -1455,7 +1446,6 @@ func TestIsTrue(t *testing.T) {
 		{"notValue", ast.Context().AsIsNode(), false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := isTrue(tt.in)
@@ -1477,7 +1467,6 @@ func TestIsFalse(t *testing.T) {
 		{"notValue", ast.Context().AsIsNode(), false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := isFalse(tt.in)
@@ -1498,7 +1487,6 @@ func TestIsNonBoolValue(t *testing.T) {
 		{"notValue", ast.Context().AsIsNode(), false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := isNonBoolValue(tt.in)
@@ -1518,7 +1506,6 @@ func TestIsVariable(t *testing.T) {
 		{"sad", types.String("test"), false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := IsVariable(tt.in)
@@ -1538,7 +1525,6 @@ func TestIsIgnore(t *testing.T) {
 		{"sad", types.String("test"), false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out := IsIgnore(tt.in)
@@ -1559,7 +1545,6 @@ func TestToVariable(t *testing.T) {
 		{"sad", types.NewEntityUID("X", "1"), "", false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			key, out := ToVariable(tt.in)
@@ -1585,7 +1570,6 @@ func TestToPartialError(t *testing.T) {
 		{"othernode", ast.NodeValue{Value: types.String("err")}, nil, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			out, ok := ToPartialError(tt.in)

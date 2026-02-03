@@ -64,7 +64,6 @@ func TestDecimal(t *testing.T) {
 			{"-922337203685477.5808", "-922337203685477.5808"},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%s->%s", tt.in, tt.out), func(t *testing.T) {
 				t.Parallel()
 				d, err := types.ParseDecimal(tt.in)
@@ -101,7 +100,6 @@ func TestDecimal(t *testing.T) {
 			{"-922337203685478.0", "error parsing decimal value: value would underflow"},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%s->%s", tt.in, tt.errStr), func(t *testing.T) {
 				t.Parallel()
 				_, err := types.ParseDecimal(tt.in)

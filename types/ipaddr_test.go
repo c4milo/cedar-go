@@ -42,7 +42,6 @@ func TestIP(t *testing.T) {
 			{"c5c5:c5c5:c5c5:c5c5:c5c5:c5c5:c5c5:c5c5/68", true, "c5c5:c5c5:c5c5:c5c5:c5c5:c5c5:c5c5:c5c5/68"},
 		}
 		for _, tt := range tests {
-			tt := tt
 			var testName string
 			if tt.parses {
 				testName = fmt.Sprintf("%s-parses-and-prints-as-%s", tt.in, tt.out)
@@ -92,7 +91,6 @@ func TestIP(t *testing.T) {
 			{"c5c5:c5c5:c5c5:c5c5:c5c5:c5c5:c5c5:c5c5/68", "c5c5:c5c5:c5c5:c5c5:c5c5:5cc5:c5c5:c5c5/68", false},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("ip(%v).Equal(ip(%v))", tt.lhs, tt.rhs), func(t *testing.T) {
 				t.Parallel()
 				lhs, err := types.ParseIPAddr(tt.lhs)
@@ -140,7 +138,6 @@ func TestIP(t *testing.T) {
 			{"2001:db8::1:0:0:1/96", false, true},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("ip(%v).isIPv{4,6}()", tt.val), func(t *testing.T) {
 				t.Parallel()
 				val, err := types.ParseIPAddr(tt.val)
@@ -189,7 +186,6 @@ func TestIP(t *testing.T) {
 			{"2001:db8::1:0:0:1/96", false},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("ip(%v).isLoopback()", tt.val), func(t *testing.T) {
 				t.Parallel()
 				val, err := types.ParseIPAddr(tt.val)
@@ -223,7 +219,6 @@ func TestIP(t *testing.T) {
 			{"224.0.0.0/3", false},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("ip(%v).isMulticast()", tt.val), func(t *testing.T) {
 				t.Parallel()
 				val, err := types.ParseIPAddr(tt.val)
@@ -256,7 +251,6 @@ func TestIP(t *testing.T) {
 			{"2001:db8::/64", "2001:db8:0:0:dead:f00d::/96", true},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("ip(%v).contains(ip(%v))", tt.lhs, tt.rhs), func(t *testing.T) {
 				t.Parallel()
 				lhs, err := types.ParseIPAddr(tt.lhs)

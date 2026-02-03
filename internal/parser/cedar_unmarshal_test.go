@@ -706,7 +706,6 @@ func TestParseApproximateErrors(t *testing.T) {
 		{"chainedHas", `permit (principal, action, resource) when { principal has a.b. };`, "expected ident after dot"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var pol parser.Policy
@@ -727,7 +726,6 @@ func TestPolicySliceErrors(t *testing.T) {
 		{"notTerminated", `"`, "literal not terminated"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var pol parser.PolicySlice
@@ -816,7 +814,6 @@ func TestReservedNamesInEntityPath(t *testing.T) {
 			ast.Permit().PrincipalEq(types.NewEntityUID("when", "test")), testutil.OK}, // Rust: OK
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -847,7 +844,6 @@ when { principal has a && principal.a has b && principal.a.b has c };`,
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var out parser.Policy

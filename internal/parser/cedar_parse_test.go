@@ -317,7 +317,6 @@ func TestParse(t *testing.T) {
 		{"very-positive-long-bad", `permit(principal,action,resource) when { 9223372036823454775808 < 9224323372036854775807 };`, true},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

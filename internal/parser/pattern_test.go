@@ -36,7 +36,6 @@ func TestParsePattern(t *testing.T) {
 		{`\u`, false, types.Pattern{}, "bad unicode rune"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.input, func(t *testing.T) {
 			t.Parallel()
 			got, err := ParsePattern(tt.input)
@@ -79,7 +78,6 @@ func TestPatternParseAndMatch(t *testing.T) {
 		{`"\*\**\*\*"`, "*bar*", false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.pattern+":"+tt.target, func(t *testing.T) {
 			t.Parallel()
 			pat, err := ParsePattern(tt.pattern[1 : len(tt.pattern)-1])

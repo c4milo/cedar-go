@@ -135,7 +135,6 @@ func TestTokenizeErrors(t *testing.T) {
 		{`"okay" "\u{z"`, "invalid char escape", Position{Line: 1, Column: 8}},
 	}
 	for i, tt := range tests {
-		tt := tt
 		t.Run(fmt.Sprintf("%02d", i), func(t *testing.T) {
 			t.Parallel()
 			got, gotErr := Tokenize([]byte(tt.input))
@@ -160,7 +159,6 @@ func TestIntTokenValues(t *testing.T) {
 		{"9223372036854775808", false, 0, `strconv.ParseInt: parsing "9223372036854775808": value out of range`},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.input, func(t *testing.T) {
 			t.Parallel()
 			got, err := Tokenize([]byte(tt.input))
@@ -212,7 +210,6 @@ func TestStringTokenValues(t *testing.T) {
 		{`"a\u{110000}b"`, false, "", "bad unicode escape sequence"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.input, func(t *testing.T) {
 			t.Parallel()
 			got, err := Tokenize([]byte(tt.input))

@@ -57,7 +57,6 @@ func TestOrNode(t *testing.T) {
 			{true, true, true},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%v%v", tt.lhs, tt.rhs), func(t *testing.T) {
 				t.Parallel()
 				n := newOrEval(newLiteralEval(types.Boolean(tt.lhs)), newLiteralEval(types.Boolean(tt.rhs)))
@@ -89,7 +88,6 @@ func TestOrNode(t *testing.T) {
 			{"RhsTypeError", newLiteralEval(types.False), newLiteralEval(types.Long(1)), ErrType},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newOrEval(tt.lhs, tt.rhs)
@@ -112,7 +110,6 @@ func TestAndNode(t *testing.T) {
 			{true, true, true},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%v%v", tt.lhs, tt.rhs), func(t *testing.T) {
 				t.Parallel()
 				n := newAndEval(newLiteralEval(types.Boolean(tt.lhs)), newLiteralEval(types.Boolean(tt.rhs)))
@@ -144,7 +141,6 @@ func TestAndNode(t *testing.T) {
 			{"RhsTypeError", newLiteralEval(types.True), newLiteralEval(types.Long(1)), ErrType},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newAndEval(tt.lhs, tt.rhs)
@@ -165,7 +161,6 @@ func TestNotNode(t *testing.T) {
 			{true, false},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%v", tt.arg), func(t *testing.T) {
 				t.Parallel()
 				n := newNotEval(newLiteralEval(types.Boolean(tt.arg)))
@@ -186,7 +181,6 @@ func TestNotNode(t *testing.T) {
 			{"TypeError", newLiteralEval(types.Long(1)), ErrType},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newNotEval(tt.arg)
@@ -222,7 +216,6 @@ func TestCheckedAddI64(t *testing.T) {
 		{-4_611_686_018_427_387_905, -4_611_686_018_427_387_904, 9_223_372_036_854_775_807, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(fmt.Sprintf("%v+%v=%v(%v)", tt.lhs, tt.rhs, tt.result, tt.ok), func(t *testing.T) {
 			t.Parallel()
 			result, ok := checkedAddI64(tt.lhs, tt.rhs)
@@ -257,7 +250,6 @@ func TestCheckedSubI64(t *testing.T) {
 		{-4_611_686_018_427_387_905, 4_611_686_018_427_387_904, 9_223_372_036_854_775_807, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(fmt.Sprintf("%v-%v=%v(%v)", tt.lhs, tt.rhs, tt.result, tt.ok), func(t *testing.T) {
 			t.Parallel()
 			result, ok := checkedSubI64(tt.lhs, tt.rhs)
@@ -331,7 +323,6 @@ func TestCheckedMulI64(t *testing.T) {
 		{-5, -9_223_372_036_854_775_808, -9_223_372_036_854_775_808, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(fmt.Sprintf("%v*%v=%v(%v)", tt.lhs, tt.rhs, tt.result, tt.ok), func(t *testing.T) {
 			t.Parallel()
 			result, ok := checkedMulI64(tt.lhs, tt.rhs)
@@ -355,7 +346,6 @@ func TestCheckedNegI64(t *testing.T) {
 		{-9_223_372_036_854_775_808, 0, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(fmt.Sprintf("-%v*=%v(%v)", tt.arg, tt.result, tt.ok), func(t *testing.T) {
 			t.Parallel()
 			result, ok := checkedNegI64(tt.arg)
@@ -394,7 +384,6 @@ func TestAddNode(t *testing.T) {
 			errOverflow},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newAddEval(tt.lhs, tt.rhs)
@@ -433,7 +422,6 @@ func TestSubtractNode(t *testing.T) {
 			errOverflow},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newSubtractEval(tt.lhs, tt.rhs)
@@ -472,7 +460,6 @@ func TestMultiplyNode(t *testing.T) {
 			errOverflow},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newMultiplyEval(tt.lhs, tt.rhs)
@@ -502,7 +489,6 @@ func TestNegateNode(t *testing.T) {
 		{"Overflow", newLiteralEval(types.Long(-9_223_372_036_854_775_808)), errOverflow},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newNegateEval(tt.arg)
@@ -530,7 +516,6 @@ func TestDecimalLessThanNode(t *testing.T) {
 			{"1.0", "1.0", false},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%s<%s", tt.lhs, tt.rhs), func(t *testing.T) {
 				t.Parallel()
 				lhsd, err := types.ParseDecimal(tt.lhs)
@@ -558,7 +543,6 @@ func TestDecimalLessThanNode(t *testing.T) {
 			{"RhsTypeError", newLiteralEval(types.Decimal{}), newLiteralEval(types.True), ErrType},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newDecimalLessThanEval(tt.lhs, tt.rhs)
@@ -587,7 +571,6 @@ func TestDecimalLessThanOrEqualNode(t *testing.T) {
 			{"1.0", "1.0", true},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%s<=%s", tt.lhs, tt.rhs), func(t *testing.T) {
 				t.Parallel()
 				lhsd, err := types.ParseDecimal(tt.lhs)
@@ -615,7 +598,6 @@ func TestDecimalLessThanOrEqualNode(t *testing.T) {
 			{"RhsTypeError", newLiteralEval(types.Decimal{}), newLiteralEval(types.True), ErrType},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newDecimalLessThanOrEqualEval(tt.lhs, tt.rhs)
@@ -644,7 +626,6 @@ func TestDecimalGreaterThanNode(t *testing.T) {
 			{"1.0", "1.0", false},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%s>%s", tt.lhs, tt.rhs), func(t *testing.T) {
 				t.Parallel()
 				lhsd, err := types.ParseDecimal(tt.lhs)
@@ -672,7 +653,6 @@ func TestDecimalGreaterThanNode(t *testing.T) {
 			{"RhsTypeError", newLiteralEval(types.Decimal{}), newLiteralEval(types.True), ErrType},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newDecimalGreaterThanEval(tt.lhs, tt.rhs)
@@ -701,7 +681,6 @@ func TestDecimalGreaterThanOrEqualNode(t *testing.T) {
 			{"1.0", "1.0", true},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(fmt.Sprintf("%s>=%s", tt.lhs, tt.rhs), func(t *testing.T) {
 				t.Parallel()
 				lhsd, err := types.ParseDecimal(tt.lhs)
@@ -729,7 +708,6 @@ func TestDecimalGreaterThanOrEqualNode(t *testing.T) {
 			{"RhsTypeError", newLiteralEval(types.Decimal{}), newLiteralEval(types.True), ErrType},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newDecimalGreaterThanOrEqualEval(tt.lhs, tt.rhs)
@@ -969,7 +947,6 @@ func TestComparableValueComparisonNodes(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		for _, tt := range tc.table {
 			t.Run(fmt.Sprintf("%v_%s_%v", tt.lhs, tc.name, tt.rhs), func(t *testing.T) {
 				t.Parallel()
@@ -1006,7 +983,6 @@ func TestIfThenElseNode(t *testing.T) {
 			ErrType},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newIfThenElseEval(tt.ifNode, tt.thenNode, tt.elseNode)
@@ -1032,7 +1008,6 @@ func TestEqualNode(t *testing.T) {
 		{"typesNotEqual", newLiteralEval(types.Long(1)), newLiteralEval(types.True), types.False, nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newEqualEval(tt.lhs, tt.rhs)
@@ -1058,7 +1033,6 @@ func TestNotEqualNode(t *testing.T) {
 		{"typesNotEqual", newLiteralEval(types.Long(1)), newLiteralEval(types.True), types.True, nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newNotEqualEval(tt.lhs, tt.rhs)
@@ -1099,7 +1073,6 @@ func TestSetLiteralNode(t *testing.T) {
 			nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newSetLiteralEval(tt.elems)
@@ -1123,7 +1096,6 @@ func TestContainsNode(t *testing.T) {
 			{"RhsError", newLiteralEval(types.Set{}), newErrorEval(errTest), errTest},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newContainsEval(tt.lhs, tt.rhs)
@@ -1152,7 +1124,6 @@ func TestContainsNode(t *testing.T) {
 			{"nestedDoesNotContainTrue", newLiteralEval(nested), newLiteralEval(types.True), false},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newContainsEval(tt.lhs, tt.rhs)
@@ -1178,7 +1149,6 @@ func TestContainsAllNode(t *testing.T) {
 			{"RhsTypeError", newLiteralEval(types.Set{}), newLiteralEval(types.Long(0)), ErrType},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newContainsAllEval(tt.lhs, tt.rhs)
@@ -1206,7 +1176,6 @@ func TestContainsAllNode(t *testing.T) {
 			{"nestedNested", newLiteralEval(nested), newLiteralEval(nested), true},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newContainsAllEval(tt.lhs, tt.rhs)
@@ -1232,7 +1201,6 @@ func TestContainsAnyNode(t *testing.T) {
 			{"RhsTypeError", newLiteralEval(types.Set{}), newLiteralEval(types.Long(0)), ErrType},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newContainsAnyEval(tt.lhs, tt.rhs)
@@ -1263,7 +1231,6 @@ func TestContainsAnyNode(t *testing.T) {
 			{"nestedTrueAndOne", newLiteralEval(nested), newLiteralEval(trueAndOne), false},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newContainsAnyEval(tt.lhs, tt.rhs)
@@ -1282,7 +1249,7 @@ func TestContainsAnyNode(t *testing.T) {
 		set1 := make([]types.Value, setSize)
 		set2 := make([]types.Value, setSize)
 
-		for i := 0; i < setSize; i++ {
+		for i := range setSize {
 			set1[i] = types.Long(i)
 			set2[i] = types.Long(setSize + i)
 		}
@@ -1309,7 +1276,6 @@ func TestIsEmptyNode(t *testing.T) {
 			{"LhsTypeError", newLiteralEval(types.True), ErrType},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newIsEmptyEval(tt.lhs)
@@ -1332,7 +1298,6 @@ func TestIsEmptyNode(t *testing.T) {
 			{"trueAndOneEmpty", newLiteralEval(trueOnly), false},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				n := newIsEmptyEval(tt.lhs)
@@ -1364,7 +1329,6 @@ func TestRecordLiteralNode(t *testing.T) {
 			}), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newRecordLiteralEval(tt.elems)
@@ -1418,7 +1382,6 @@ func TestAttributeAccessNode(t *testing.T) {
 			errUnspecifiedEntity},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newAttributeAccessEval(tt.object, tt.attribute)
@@ -1475,7 +1438,6 @@ func TestHasNode(t *testing.T) {
 			nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newHasEval(tt.record, tt.attribute)
@@ -1704,7 +1666,6 @@ func TestLikeNode(t *testing.T) {
 		{"case-25", newLiteralEval(types.String("string*with*stars")), `"string\*with\*stars"`, types.True, nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			pat, err := parser.ParsePattern(tt.pattern[1 : len(tt.pattern)-1])
@@ -1743,7 +1704,6 @@ func TestVariableNode(t *testing.T) {
 			types.String("frob")},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newVariableEval(tt.variable)
@@ -1838,7 +1798,6 @@ func TestEntityIn(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var rhs []types.EntityUID
@@ -1866,7 +1825,7 @@ func TestEntityIn(t *testing.T) {
 	t.Run("exponentialWithoutCaching", func(t *testing.T) {
 		t.Parallel()
 		entityMap := types.EntityMap{}
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			p := types.NewEntityUIDSet(
 				types.NewEntityUID(types.EntityType(fmt.Sprint(i+1)), "1"),
 				types.NewEntityUID(types.EntityType(fmt.Sprint(i+1)), "2"),
@@ -1908,7 +1867,6 @@ func TestIsNode(t *testing.T) {
 		{"errLhs", newErrorEval(errTest), types.EntityType("X"), zeroValue(), errTest},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := newIsEval(tt.lhs, tt.rhs).Eval(Env{})
@@ -2011,7 +1969,6 @@ func TestInNode(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newInEval(tt.lhs, tt.rhs)
@@ -2151,7 +2108,6 @@ func TestIsInNode(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newIsInEval(tt.lhs, tt.is, tt.rhs)
@@ -2189,7 +2145,6 @@ func TestDecimalLiteralNode(t *testing.T) {
 		{"Success", newLiteralEval(types.String("1.0")), testutil.Must(types.NewDecimalFromInt(1)), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newDecimalLiteralEval(tt.arg)
@@ -2216,7 +2171,6 @@ func TestIPLiteralNode(t *testing.T) {
 		{"Success", newLiteralEval(types.String("::1/128")), ipv6Loopback, nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newIPLiteralEval(tt.arg)
@@ -2254,7 +2208,6 @@ func TestIPTestNode(t *testing.T) {
 		{"MulticastFalse", newLiteralEval(ipv6Loopback), ipTestMulticast, types.False, nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newIPTestEval(tt.lhs, tt.rhs)
@@ -2292,7 +2245,6 @@ func TestIPIsInRangeNode(t *testing.T) {
 		{"CB", newLiteralEval(ipv4C), newLiteralEval(ipv4B), types.False, nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newIPIsInRangeEval(tt.lhs, tt.rhs)
@@ -2322,7 +2274,6 @@ func TestCedarString(t *testing.T) {
 		{"duration", types.NewDuration(1 * time.Millisecond), `1ms`, `duration("1ms")`},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			gotString := tt.in.String()
@@ -2347,7 +2298,6 @@ func TestDatetimeLiteralNode(t *testing.T) {
 		{"Success", newLiteralEval(types.String("1970-01-01")), types.NewDatetime(time.UnixMilli(0)), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newDatetimeLiteralEval(tt.arg)
@@ -2374,7 +2324,6 @@ func TestDatetimeToDate(t *testing.T) {
 		{"Success", newLiteralEval(aTime), types.NewDatetime(time.UnixMilli(24 * 60 * 60 * 1000)), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newToDateEval(tt.arg)
@@ -2407,7 +2356,6 @@ func TestDatetimeDurationSince(t *testing.T) {
 		{"Success", newLiteralEval(baseTime), newLiteralEval(endTime), dur, nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newDurationSinceEval(tt.lhs, tt.rhs)
@@ -2440,7 +2388,6 @@ func TestDatetimeOffset(t *testing.T) {
 		{"Success", newLiteralEval(baseTime), newLiteralEval(dur), endTime, nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newOffsetEval(tt.lhs, tt.rhs)
@@ -2467,7 +2414,6 @@ func TestDatetimeToTime(t *testing.T) {
 		{"Success", newLiteralEval(aTime), types.NewDuration(10 * time.Hour), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newToTimeEval(tt.arg)
@@ -2492,7 +2438,6 @@ func TestDurationLiteralNode(t *testing.T) {
 		{"Success", newLiteralEval(types.String("1h")), types.NewDuration(1 * time.Hour), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newDurationLiteralEval(tt.arg)
@@ -2519,7 +2464,6 @@ func TestDurationToMilliseconds(t *testing.T) {
 		{"Success", newLiteralEval(oneDay), types.Long(24 * 60 * 60 * 1000), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newToMillisecondsEval(tt.arg)
@@ -2546,7 +2490,6 @@ func TestDurationToSeconds(t *testing.T) {
 		{"Success", newLiteralEval(oneDay), types.Long(24 * 60 * 60), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newToSecondsEval(tt.arg)
@@ -2573,7 +2516,6 @@ func TestDurationToMinutes(t *testing.T) {
 		{"Success", newLiteralEval(oneDay), types.Long(24 * 60), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newToMinutesEval(tt.arg)
@@ -2600,7 +2542,6 @@ func TestDurationToHours(t *testing.T) {
 		{"Success", newLiteralEval(oneDay), types.Long(24), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newToHoursEval(tt.arg)
@@ -2627,7 +2568,6 @@ func TestDurationToDays(t *testing.T) {
 		{"Success", newLiteralEval(oneDay), types.Long(1), nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			n := newToDaysEval(tt.arg)

@@ -78,7 +78,7 @@ func BenchmarkCorpusAuthorize(b *testing.B) {
 		} `json:"requests"`
 	}
 
-	for i := 0; i < maxTests; i++ {
+	for i := range maxTests {
 		testFile := testFiles[i]
 		b.Run(testFile, func(b *testing.B) {
 			testContent, err := getFile(testFile)
@@ -232,7 +232,7 @@ func BenchmarkAuthorizePolicyCount(b *testing.B) {
 			ps := NewPolicySet()
 
 			// Add policies - only one will match
-			for i := 0; i < count; i++ {
+			for i := range count {
 				policyText := fmt.Sprintf(`
 					permit (
 						principal == User::"user%d",
@@ -371,7 +371,7 @@ func BenchmarkAuthorizeForbid(b *testing.B) {
 	ps := NewPolicySet()
 
 	// Add many permit policies
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		var policy Policy
 		if err := policy.UnmarshalCedar([]byte(`
 			permit (
@@ -443,7 +443,7 @@ func BenchmarkAuthorizeAttributeAccess(b *testing.B) {
 
 			// Build context with attributes
 			contextMap := types.RecordMap{}
-			for i := 0; i < count; i++ {
+			for i := range count {
 				contextMap[types.String(fmt.Sprintf("attr%d", i))] = types.Boolean(true)
 			}
 

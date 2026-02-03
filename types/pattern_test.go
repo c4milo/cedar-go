@@ -76,7 +76,6 @@ func TestPatternMatch(t *testing.T) {
 		{NewPattern("he", Wildcard{}), "hello", true},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(string(tt.pattern.MarshalCedar())+":"+tt.target, func(t *testing.T) {
 			t.Parallel()
 			got := tt.pattern.Match(String(tt.target))
@@ -223,7 +222,6 @@ func TestPatternJSON(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var pat Pattern

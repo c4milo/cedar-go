@@ -320,7 +320,6 @@ func TestSet(t *testing.T) {
 			},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				got := tt.set.Contains(tt.value)
@@ -343,7 +342,6 @@ func TestSet(t *testing.T) {
 			{"falseSameHash", types.NewSet(types.Long(0)), types.NewSet(testutil.Must(types.NewDecimalFromInt(0))), false},
 		}
 		for _, tt := range tests {
-			tt := tt
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				got := tt.set.Equal(tt.value)
