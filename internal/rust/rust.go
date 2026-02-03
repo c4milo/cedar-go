@@ -147,6 +147,49 @@ func IsHexadecimal(ch rune) bool {
 	return IsDecimal(ch) || ('a' <= lower(ch) && lower(ch) <= 'f')
 }
 
+// Quote escapes a string using Rust/Cedar escape sequences.
+// This is the inverse of Unquote. The star parameter indicates whether
+// to also escape '*' characters (used for pattern literals).
+func Quote(s string, star bool) string {
+	var sb strings.Builder
+	for _, ch := range s {
+		switch ch {
+		case '\n':
+			sb.WriteString(`\n`)
+		case '\r':
+			sb.WriteString(`\r`)
+		case '\t':
+			sb.WriteString(`\t`)
+		case '\\':
+			sb.WriteString(`\\`)
+		case '\x00':
+			sb.WriteString(`\0`)
+		case '\'':
+			sb.WriteString(`\'`)
+		case '"':
+			sb.WriteString(`\"`)
+		case '*':
+			if star {
+				sb.WriteString(`\*`)
+			} else {
+				sb.WriteRune(ch)
+			}
+		default:
+			if ch < 0x20 || ch == 0x7F {
+				// Non-printable ASCII: use \xNN
+				sb.WriteString(fmt.Sprintf(`\x%02x`, ch))
+			} else if ch > 0x7F {
+				// Non-ASCII: use \u{XXXX} (Rust/Cedar format)
+				sb.WriteString(fmt.Sprintf(`\u{%x}`, ch))
+			} else {
+				// Printable ASCII
+				sb.WriteRune(ch)
+			}
+		}
+	}
+	return sb.String()
+}
+
 func lower(ch rune) rune     { return ('a' - 'A') | ch } // returns lower-case ch iff ch is ASCII letter
 func IsDecimal(ch rune) bool { return '0' <= ch && ch <= '9' }
 
