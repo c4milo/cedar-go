@@ -30,12 +30,22 @@ func Authorize(policies PolicyIterator, entities types.EntityGetter, req Request
 	var diag Diagnostic
 	var forbids []DiagnosticReason
 	var permits []DiagnosticReason
+
+	// Use indexed iteration if available and beneficial for faster authorization
+	// Indexing overhead is only worth it for larger policy sets (>50 policies)
+	var policyIter iter.Seq2[PolicyID, *Policy]
+	if ps, ok := policies.(*PolicySet); ok && len(ps.policies) > 50 {
+		policyIter = ps.forRequest(req)
+	} else {
+		policyIter = policies.All()
+	}
+
 	// Don't try to short circuit this.
 	// - Even though single forbid means forbid
 	// - All policy should be run to collect errors
 	// - For permit, all permits must be run to collect annotations
 	// - For forbid, forbids must be run to collect annotations
-	for id, po := range policies.All() {
+	for id, po := range policyIter {
 		result, err := po.eval.Eval(env)
 		if err != nil {
 			diag.Errors = append(diag.Errors, DiagnosticError{PolicyID: id, Position: po.Position(), Message: err.Error()})
