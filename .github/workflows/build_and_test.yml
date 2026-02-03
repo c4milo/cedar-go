@@ -33,3 +33,30 @@ jobs:
 
       - name: Coverage check
         run: go tool cover -func=coverage.out | sed 's/%$//' | awk '{ if ($3 < 100.0) { printf "Insufficient code coverage for %s\n", $0; failed=1 } } END { exit failed }'
+
+  benchmark:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run benchmarks
+        run: go test -bench=. -benchmem -count=6 ./... > benchmarks/current.txt
+
+      - name: Compare benchmarks
+        run: |
+          echo "## Benchmark Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Comparing against committed baseline:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          benchstat benchmarks/baseline.txt benchmarks/current.txt >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
