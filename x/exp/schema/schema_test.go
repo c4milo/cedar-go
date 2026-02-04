@@ -3,6 +3,7 @@ package schema
 import (
 	"encoding/json"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -197,4 +198,36 @@ func TestSchemaCrossFormatMarshaling(t *testing.T) {
 			t.Errorf("MarshalJSON() error = %v", err)
 		}
 	})
+}
+
+func TestSchemaConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	var s Schema
+	err := s.UnmarshalJSON([]byte(`{
+		"": {
+			"entityTypes": {
+				"User": {}
+			},
+			"actions": {}
+		}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Concurrent reads should be safe
+	var wg sync.WaitGroup
+	for range 100 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _ = s.MarshalJSON()
+		}()
+		go func() {
+			defer wg.Done()
+			_, _ = s.MarshalCedar()
+		}()
+	}
+	wg.Wait()
 }

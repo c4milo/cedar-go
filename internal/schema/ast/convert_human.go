@@ -5,6 +5,15 @@ import (
 	"strings"
 )
 
+// annotationValue returns the string value of an annotation, or empty string if nil.
+// Cedar annotations can have no value (e.g., @doc without @doc("text")).
+func annotationValue(s *String) string {
+	if s == nil {
+		return ""
+	}
+	return s.String()
+}
+
 // ConvertHuman2JSON converts an AST schema to a JSON schema. The conversion process is lossy.
 // Any information related to ordering, formatting, comments, etc... are lost completely.
 //
@@ -35,7 +44,7 @@ func convertNamespace(n *Namespace) *JSONNamespace {
 	jsNamespace.CommonTypes = make(map[string]*JSONCommonType)
 	jsNamespace.Annotations = make(map[string]string)
 	for _, a := range n.Annotations {
-		jsNamespace.Annotations[a.Key.String()] = a.Value.String()
+		jsNamespace.Annotations[a.Key.String()] = annotationValue(a.Value)
 	}
 
 	for _, astDecl := range n.Decls {
@@ -45,7 +54,7 @@ func convertNamespace(n *Namespace) *JSONNamespace {
 				jsAction := new(JSONAction)
 				jsAction.Annotations = make(map[string]string)
 				for _, a := range astDecl.Annotations {
-					jsAction.Annotations[a.Key.String()] = a.Value.String()
+					jsAction.Annotations[a.Key.String()] = annotationValue(a.Value)
 				}
 				jsNamespace.Actions[astActionName.String()] = jsAction
 				for _, astMember := range astDecl.In {
@@ -79,7 +88,7 @@ func convertNamespace(n *Namespace) *JSONNamespace {
 				entity := new(JSONEntity)
 				entity.Annotations = make(map[string]string)
 				for _, a := range astDecl.Annotations {
-					entity.Annotations[a.Key.String()] = a.Value.String()
+					entity.Annotations[a.Key.String()] = annotationValue(a.Value)
 				}
 				jsNamespace.EntityTypes[name.String()] = entity
 				for _, member := range astDecl.In {
@@ -101,7 +110,7 @@ func convertNamespace(n *Namespace) *JSONNamespace {
 			commonType.JSONType = convertType(astDecl.Value)
 			commonType.Annotations = make(map[string]string)
 			for _, a := range astDecl.Annotations {
-				commonType.Annotations[a.Key.String()] = a.Value.String()
+				commonType.Annotations[a.Key.String()] = annotationValue(a.Value)
 			}
 			jsNamespace.CommonTypes[astDecl.Name.String()] = commonType
 		}
@@ -149,7 +158,7 @@ func convertRecordType(t *RecordType) *JSONType {
 		jt.Attributes[attr.Key.String()] = jsAttr
 		jsAttr.Annotations = make(map[string]string)
 		for _, a := range attr.Annotations {
-			jsAttr.Annotations[a.Key.String()] = a.Value.String()
+			jsAttr.Annotations[a.Key.String()] = annotationValue(a.Value)
 		}
 	}
 	return jt
