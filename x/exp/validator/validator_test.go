@@ -74,6 +74,30 @@ func validatePolicyString(t *testing.T, s *schema.Schema, policyStr string) Poli
 	return ValidatePolicies(s, policies)
 }
 
+// checkPolicyResult checks policy validation results against expectations.
+func checkPolicyResult(t *testing.T, result PolicyValidationResult, wantValid bool, wantError string) {
+	t.Helper()
+	if wantValid {
+		if !result.Valid {
+			t.Errorf("Expected valid, got errors: %v", result.Errors)
+		}
+		return
+	}
+	if result.Valid {
+		t.Error("Expected invalid, but validation passed")
+		return
+	}
+	if wantError == "" {
+		return
+	}
+	for _, err := range result.Errors {
+		if strings.Contains(err.Message, wantError) {
+			return
+		}
+	}
+	t.Errorf("Expected error containing %q, got: %v", wantError, result.Errors)
+}
+
 func TestValidatePolicies(t *testing.T) {
 
 	schemaJSON := `{
@@ -458,26 +482,7 @@ func TestLevelBasedValidation(t *testing.T) {
 			policies.Add("test", &policy)
 
 			result := ValidatePolicies(s, policies, WithMaxAttributeLevel(tc.maxLevel))
-
-			if tc.wantValid && !result.Valid {
-				t.Errorf("Expected valid, got errors: %v", result.Errors)
-			}
-			if !tc.wantValid {
-				if result.Valid {
-					t.Error("Expected invalid, but validation passed")
-				} else {
-					found := false
-					for _, err := range result.Errors {
-						if strings.Contains(err.Message, tc.wantError) {
-							found = true
-							break
-						}
-					}
-					if !found {
-						t.Errorf("Expected error containing %q, got: %v", tc.wantError, result.Errors)
-					}
-				}
-			}
+			checkPolicyResult(t, result, tc.wantValid, tc.wantError)
 		})
 	}
 }

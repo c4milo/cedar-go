@@ -24,6 +24,30 @@ import (
 
 // Entity validation tests.
 
+// assertEntityValidationResult checks entity validation results against expectations.
+func assertEntityValidationResult(t *testing.T, result EntityValidationResult, expectValid bool, errorSubstr string) {
+	t.Helper()
+	if expectValid {
+		if !result.Valid {
+			t.Errorf("Expected valid, got errors: %v", result.Errors)
+		}
+		return
+	}
+	if result.Valid {
+		t.Error("Expected invalid, but validation passed")
+		return
+	}
+	if errorSubstr == "" {
+		return
+	}
+	for _, err := range result.Errors {
+		if strings.Contains(err.Message, errorSubstr) {
+			return
+		}
+	}
+	t.Errorf("Expected error containing %q, got: %v", errorSubstr, result.Errors)
+}
+
 func TestValidateEntities(t *testing.T) {
 
 	schemaJSON := `{
@@ -712,25 +736,7 @@ func TestEntityValidationWithParents(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			result := ValidateEntities(s, tc.entities)
-			if tc.expectValid && !result.Valid {
-				t.Errorf("Expected valid, got errors: %v", result.Errors)
-			}
-			if !tc.expectValid {
-				if result.Valid {
-					t.Error("Expected invalid, but validation passed")
-				} else if tc.errorSubstr != "" {
-					found := false
-					for _, err := range result.Errors {
-						if strings.Contains(err.Message, tc.errorSubstr) {
-							found = true
-							break
-						}
-					}
-					if !found {
-						t.Errorf("Expected error containing %q, got: %v", tc.errorSubstr, result.Errors)
-					}
-				}
-			}
+			assertEntityValidationResult(t, result, tc.expectValid, tc.errorSubstr)
 		})
 	}
 }

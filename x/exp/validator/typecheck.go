@@ -496,11 +496,9 @@ func (ctx *typeContext) typecheckIn(n ast.NodeTypeIn) CedarType {
 
 // typecheckAccess handles attribute access (e.g., principal.name)
 func (ctx *typeContext) typecheckAccess(n ast.NodeTypeAccess) CedarType {
-	// Increment level before checking the base
 	ctx.currentLevel++
 	defer func() { ctx.currentLevel-- }()
 
-	// Check if we've exceeded the max attribute level
 	if ctx.v.maxAttributeLevel > 0 && ctx.currentLevel > ctx.v.maxAttributeLevel {
 		ctx.errors = append(ctx.errors,
 			fmt.Sprintf("attribute access exceeds maximum level %d (current level: %d)",
@@ -512,52 +510,53 @@ func (ctx *typeContext) typecheckAccess(n ast.NodeTypeAccess) CedarType {
 
 	switch t := baseType.(type) {
 	case EntityType:
-		// Look up the attribute in the entity type
-		// Note: t.Name could be empty string (which is a specific, if unusual, entity type name)
-		// or it could be a type name that isn't defined in the schema (unknown entity type)
-		if info, ok := ctx.v.entityTypes[t.Name]; ok {
-			if attr, ok := info.Attributes[attrName]; ok {
-				// Check if attribute is optional (required: false)
-				// Accessing an optional attribute without has() check is a type error
-				if !attr.Required {
-					ctx.errors = append(ctx.errors,
-						fmt.Sprintf("attribute '%s' on entity type %s is optional; use `has` to check for its presence first", attrName, t.Name))
-				}
-				// Return the attribute type. If it's UnspecifiedType (no type in schema),
-				// this will be caught at the condition level if used as a boolean,
-				// but allowed for comparisons (which return Bool).
-				return attr.Type
-			}
-			ctx.errors = append(ctx.errors,
-				fmt.Sprintf("entity type %s does not have attribute '%s'", t.Name, attrName))
-			return UnknownType{}
-		}
-		// Entity type is not defined in the schema - this is a validation error
-		// because we cannot verify the attribute access is valid
-		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("cannot access attribute '%s' on unknown entity type %s", attrName, t.Name))
-		return UnknownType{}
-
+		return ctx.typecheckEntityAttrAccess(t, attrName)
 	case RecordType:
-		if attr, ok := t.Attributes[attrName]; ok {
-			// Check if attribute is optional
-			if !attr.Required {
-				ctx.errors = append(ctx.errors,
-					fmt.Sprintf("attribute '%s' is optional; use `has` to check for its presence first", attrName))
-			}
-			return attr.Type
-		}
-		// Record type might allow any attribute if schema is incomplete
-		return UnknownType{}
-
+		return ctx.typecheckRecordAttrAccess(t, attrName)
 	case UnknownType:
 		return UnknownType{}
-
 	default:
 		ctx.errors = append(ctx.errors,
 			fmt.Sprintf("cannot access attribute '%s' on type %s", attrName, baseType))
 		return UnknownType{}
 	}
+}
+
+// typecheckEntityAttrAccess handles attribute access on entity types.
+func (ctx *typeContext) typecheckEntityAttrAccess(t EntityType, attrName string) CedarType {
+	info, ok := ctx.v.entityTypes[t.Name]
+	if !ok {
+		ctx.errors = append(ctx.errors,
+			fmt.Sprintf("cannot access attribute '%s' on unknown entity type %s", attrName, t.Name))
+		return UnknownType{}
+	}
+
+	attr, ok := info.Attributes[attrName]
+	if !ok {
+		ctx.errors = append(ctx.errors,
+			fmt.Sprintf("entity type %s does not have attribute '%s'", t.Name, attrName))
+		return UnknownType{}
+	}
+
+	if !attr.Required {
+		ctx.errors = append(ctx.errors,
+			fmt.Sprintf("attribute '%s' on entity type %s is optional; use `has` to check for its presence first", attrName, t.Name))
+	}
+	return attr.Type
+}
+
+// typecheckRecordAttrAccess handles attribute access on record types.
+func (ctx *typeContext) typecheckRecordAttrAccess(t RecordType, attrName string) CedarType {
+	attr, ok := t.Attributes[attrName]
+	if !ok {
+		return UnknownType{}
+	}
+
+	if !attr.Required {
+		ctx.errors = append(ctx.errors,
+			fmt.Sprintf("attribute '%s' is optional; use `has` to check for its presence first", attrName))
+	}
+	return attr.Type
 }
 
 // typecheckWithoutLevelIncrement is used for nested access to avoid double counting
