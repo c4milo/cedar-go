@@ -17,10 +17,9 @@ func TestSchemaCedarMarshalUnmarshal(t *testing.T) {
 			name: "valid schema",
 			input: `namespace foo {
 				entity User;
-				entity Document;
 				action Bar appliesTo {
 					principal: User,
-					resource: Document
+					resource: User
 				};
 			}`,
 			wantErr: false,
