@@ -16,9 +16,11 @@ func TestSchemaCedarMarshalUnmarshal(t *testing.T) {
 		{
 			name: "valid schema",
 			input: `namespace foo {
+				entity User;
+				entity Document;
 				action Bar appliesTo {
-					principal: String,
-					resource: String
+					principal: User,
+					resource: Document
 				};
 			}`,
 			wantErr: false,
@@ -215,4 +217,108 @@ func TestSchemaConcurrentAccess(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestNewFromJSONFlatSchema(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{
+			name: "flat schema with entityTypes",
+			input: `{
+				"entityTypes": {
+					"User": {
+						"shape": {
+							"type": "Record",
+							"attributes": {
+								"name": {"type": "String"}
+							}
+						}
+					}
+				}
+			}`,
+			wantErr: false,
+		},
+		{
+			name: "flat schema with actions",
+			input: `{
+				"actions": {
+					"view": {
+						"appliesTo": {
+							"principalTypes": ["User"],
+							"resourceTypes": ["Document"]
+						}
+					}
+				}
+			}`,
+			wantErr: false,
+		},
+		{
+			name: "flat schema with commonTypes",
+			input: `{
+				"commonTypes": {
+					"MyString": {"type": "String"}
+				}
+			}`,
+			wantErr: false,
+		},
+		{
+			name: "flat schema with all top-level keys",
+			input: `{
+				"entityTypes": {"User": {}},
+				"actions": {"view": {}},
+				"commonTypes": {"MyType": {"type": "Long"}}
+			}`,
+			wantErr: false,
+		},
+		{
+			name: "namespace-based schema",
+			input: `{
+				"MyNamespace": {
+					"entityTypes": {"User": {}},
+					"actions": {"view": {}}
+				}
+			}`,
+			wantErr: false,
+		},
+		{
+			name:    "invalid flat schema JSON",
+			input:   `{"entityTypes": invalid}`,
+			wantErr: true,
+		},
+		{
+			name:    "completely invalid JSON",
+			input:   `not json at all`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := NewFromJSON([]byte(tt.input))
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewFromJSON() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if tt.wantErr {
+				return
+			}
+
+			// Verify we can marshal back to JSON
+			out, err := s.MarshalJSON()
+			if err != nil {
+				t.Errorf("MarshalJSON() error = %v", err)
+				return
+			}
+
+			// Verify output is valid JSON
+			var raw any
+			if err := json.Unmarshal(out, &raw); err != nil {
+				t.Errorf("MarshalJSON() produced invalid JSON: %v", err)
+			}
+		})
+	}
 }
