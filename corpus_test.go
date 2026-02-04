@@ -151,9 +151,8 @@ func TestCorpus(t *testing.T) {
 			if err != nil {
 				t.Fatal("error reading schema content", err)
 			}
-			var s schema.Schema
-			s.SetFilename("test.schema")
-			if err := s.UnmarshalCedar(schemaContent); err != nil {
+			_, err = schema.NewFromCedar("test.schema", schemaContent)
+			if err != nil {
 				t.Fatal("error parsing schema", err, "\n===\n", string(schemaContent))
 			}
 

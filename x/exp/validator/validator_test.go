@@ -87,8 +87,8 @@ func TestValidateEntities(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -101,7 +101,7 @@ func TestValidateEntities(t *testing.T) {
 		},
 	}
 
-	result := ValidateEntities(&s, entities)
+	result := ValidateEntities(s, entities)
 	if !result.Valid {
 		t.Errorf("Expected valid entities, got errors: %v", result.Errors)
 	}
@@ -125,8 +125,8 @@ func TestValidateRequest(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -138,7 +138,7 @@ func TestValidateRequest(t *testing.T) {
 		Context:   types.NewRecord(types.RecordMap{}),
 	}
 
-	result := ValidateRequest(&s, req)
+	result := ValidateRequest(s, req)
 	if !result.Valid {
 		t.Errorf("Expected valid request, got error: %s", result.Error)
 	}
@@ -151,7 +151,7 @@ func TestValidateRequest(t *testing.T) {
 		Context:   types.NewRecord(types.RecordMap{}),
 	}
 
-	result = ValidateRequest(&s, badReq)
+	result = ValidateRequest(s, badReq)
 	if result.Valid {
 		t.Error("Expected invalid request for wrong principal type")
 	}
@@ -174,8 +174,8 @@ func TestValidatePolicies(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -186,7 +186,7 @@ func TestValidatePolicies(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid policies, got errors: %v", result.Errors)
 	}
@@ -226,8 +226,8 @@ func TestTypecheckConditions(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -284,7 +284,7 @@ func TestTypecheckConditions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			a := assertPolicyResult(t, result)
 			if tc.expectValid {
 				a.valid()
@@ -336,8 +336,8 @@ func TestTypecheckArithmetic(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -370,7 +370,7 @@ func TestTypecheckArithmetic(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -403,8 +403,8 @@ func TestTypecheckSetOperations(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -437,7 +437,7 @@ func TestTypecheckSetOperations(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -471,8 +471,8 @@ func TestTypecheckConditionals(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -495,7 +495,7 @@ func TestTypecheckConditionals(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -524,8 +524,8 @@ func TestTypecheckInOperator(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -553,7 +553,7 @@ func TestTypecheckInOperator(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -591,8 +591,8 @@ func TestValidateEntitiesComplex(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -685,7 +685,7 @@ func TestValidateEntitiesComplex(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := ValidateEntities(&s, tc.entities)
+			result := ValidateEntities(s, tc.entities)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -721,8 +721,8 @@ func TestValidateRequestWithContext(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -757,7 +757,7 @@ func TestValidateRequestWithContext(t *testing.T) {
 				Resource:  types.NewEntityUID("Document", "doc1"),
 				Context:   tc.context,
 			}
-			result := ValidateRequest(&s, req)
+			result := ValidateRequest(s, req)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got error: %s", result.Error)
 			}
@@ -793,8 +793,8 @@ func TestValidateActionInSet(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -824,7 +824,7 @@ func TestValidateActionInSet(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -916,8 +916,8 @@ func TestTypecheckLikeOperator(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -935,7 +935,7 @@ func TestTypecheckLikeOperator(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -969,8 +969,8 @@ func TestTypecheckExtensionCalls(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -993,7 +993,7 @@ func TestTypecheckExtensionCalls(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -1027,8 +1027,8 @@ func TestTypecheckRecordLiterals(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1046,7 +1046,7 @@ func TestTypecheckRecordLiterals(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -1078,8 +1078,8 @@ func TestTypecheckInConditions(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1102,7 +1102,7 @@ func TestTypecheckInConditions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -1133,8 +1133,8 @@ func TestValidateEntitiesWithSetsAndRecords(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1164,7 +1164,7 @@ func TestValidateEntitiesWithSetsAndRecords(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := ValidateEntities(&s, tc.entities)
+			result := ValidateEntities(s, tc.entities)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -1204,12 +1204,12 @@ func TestSchemaWithEntityRefTypes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	result := ValidatePolicies(&s, cedar.NewPolicySet())
+	result := ValidatePolicies(s, cedar.NewPolicySet())
 	if !result.Valid {
 		t.Errorf("Expected valid policies, got errors: %v", result.Errors)
 	}
@@ -1252,8 +1252,8 @@ func TestValidateScopeTypes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1298,7 +1298,7 @@ func TestValidateScopeTypes(t *testing.T) {
 			}
 			policies.Add("test", &policy)
 
-			result := ValidatePolicies(&s, policies)
+			result := ValidatePolicies(s, policies)
 
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
@@ -1347,8 +1347,8 @@ func TestSchemaWithCommonTypes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1359,7 +1359,7 @@ func TestSchemaWithCommonTypes(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -1390,8 +1390,8 @@ func TestSchemaWithActionContext(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1402,7 +1402,7 @@ func TestSchemaWithActionContext(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -1436,8 +1436,8 @@ func TestSchemaWithActionMemberOf(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1448,7 +1448,7 @@ func TestSchemaWithActionMemberOf(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -1480,12 +1480,12 @@ func TestSchemaWithExtensionTypes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	result := ValidatePolicies(&s, cedar.NewPolicySet())
+	result := ValidatePolicies(s, cedar.NewPolicySet())
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -1516,8 +1516,8 @@ func TestSchemaWithEntityType(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1528,7 +1528,7 @@ func TestSchemaWithEntityType(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -1559,8 +1559,8 @@ func TestSchemaWithSetType(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1571,7 +1571,7 @@ func TestSchemaWithSetType(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -1597,8 +1597,8 @@ func TestSchemaWithMemberOfTypes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1609,7 +1609,7 @@ func TestSchemaWithMemberOfTypes(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -1625,8 +1625,8 @@ func TestValidateEntitiesWithInvalidType(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1635,7 +1635,7 @@ func TestValidateEntitiesWithInvalidType(t *testing.T) {
 		types.EntityUID{Type: "UnknownType", ID: "test"}: types.Entity{},
 	}
 
-	result := ValidateEntities(&s, entities)
+	result := ValidateEntities(s, entities)
 	if result.Valid {
 		t.Error("Expected invalid for entity with unknown type")
 	}
@@ -1658,8 +1658,8 @@ func TestValidateEntitiesWithInvalidAttribute(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1672,7 +1672,7 @@ func TestValidateEntitiesWithInvalidAttribute(t *testing.T) {
 		},
 	}
 
-	result := ValidateEntities(&s, entities)
+	result := ValidateEntities(s, entities)
 	if result.Valid {
 		t.Error("Expected invalid for entity with wrong attribute type")
 	}
@@ -1702,8 +1702,8 @@ func TestValidateRequestWithContextRequired(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1717,7 +1717,7 @@ func TestValidateRequestWithContextRequired(t *testing.T) {
 		}),
 	}
 
-	result := ValidateRequest(&s, req)
+	result := ValidateRequest(s, req)
 	if !result.Valid {
 		t.Errorf("Expected valid request, got error: %s", result.Error)
 	}
@@ -1732,7 +1732,7 @@ func TestValidateRequestWithContextRequired(t *testing.T) {
 		}),
 	}
 
-	result = ValidateRequest(&s, badReq)
+	result = ValidateRequest(s, badReq)
 	if result.Valid {
 		t.Error("Expected invalid request for wrong context type")
 	}
@@ -1755,8 +1755,8 @@ func TestValidateRequestWithUnknownAction(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1767,7 +1767,7 @@ func TestValidateRequestWithUnknownAction(t *testing.T) {
 		Context:   types.NewRecord(types.RecordMap{}),
 	}
 
-	result := ValidateRequest(&s, req)
+	result := ValidateRequest(s, req)
 	if result.Valid {
 		t.Error("Expected invalid request for unknown action")
 	}
@@ -1790,8 +1790,8 @@ func TestSchemaWithNamespace(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1802,7 +1802,7 @@ func TestSchemaWithNamespace(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	// This should pass as permit all is valid
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
@@ -1882,8 +1882,8 @@ func TestTypecheckTypeErrors(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -1983,7 +1983,7 @@ func TestTypecheckTypeErrors(t *testing.T) {
 			}
 			policies.Add("test", &policy)
 
-			result := ValidatePolicies(&s, policies)
+			result := ValidatePolicies(s, policies)
 
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
@@ -2020,8 +2020,8 @@ func TestSchemaWithTypeBoolean(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2032,7 +2032,7 @@ func TestSchemaWithTypeBoolean(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -2055,8 +2055,8 @@ func TestValidateEntitiesWithMissingRequiredAttribute(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2067,7 +2067,7 @@ func TestValidateEntitiesWithMissingRequiredAttribute(t *testing.T) {
 		},
 	}
 
-	result := ValidateEntities(&s, entities)
+	result := ValidateEntities(s, entities)
 	if result.Valid {
 		t.Error("Expected invalid for entity missing required attribute")
 	}
@@ -2090,8 +2090,8 @@ func TestValidateEntitiesWithSetAttribute(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2104,7 +2104,7 @@ func TestValidateEntitiesWithSetAttribute(t *testing.T) {
 		},
 	}
 
-	result := ValidateEntities(&s, entities)
+	result := ValidateEntities(s, entities)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -2118,7 +2118,7 @@ func TestValidateEntitiesWithSetAttribute(t *testing.T) {
 		},
 	}
 
-	result = ValidateEntities(&s, entities)
+	result = ValidateEntities(s, entities)
 	if result.Valid {
 		t.Error("Expected invalid for set with wrong element type")
 	}
@@ -2146,8 +2146,8 @@ func TestValidateEntitiesWithRecordAttribute(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2162,7 +2162,7 @@ func TestValidateEntitiesWithRecordAttribute(t *testing.T) {
 		},
 	}
 
-	result := ValidateEntities(&s, entities)
+	result := ValidateEntities(s, entities)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -2176,7 +2176,7 @@ func TestValidateEntitiesWithRecordAttribute(t *testing.T) {
 		},
 	}
 
-	result = ValidateEntities(&s, entities)
+	result = ValidateEntities(s, entities)
 	if result.Valid {
 		t.Error("Expected invalid for non-record where record expected")
 	}
@@ -2199,8 +2199,8 @@ func TestValidateEntitiesWithEntityAttribute(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2213,7 +2213,7 @@ func TestValidateEntitiesWithEntityAttribute(t *testing.T) {
 		},
 	}
 
-	result := ValidateEntities(&s, entities)
+	result := ValidateEntities(s, entities)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -2227,7 +2227,7 @@ func TestValidateEntitiesWithEntityAttribute(t *testing.T) {
 		},
 	}
 
-	result = ValidateEntities(&s, entities)
+	result = ValidateEntities(s, entities)
 	if result.Valid {
 		t.Error("Expected invalid for entity with wrong type")
 	}
@@ -2250,8 +2250,8 @@ func TestValidateEntitiesWithExtensionAttribute(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2265,7 +2265,7 @@ func TestValidateEntitiesWithExtensionAttribute(t *testing.T) {
 		},
 	}
 
-	result := ValidateEntities(&s, entities)
+	result := ValidateEntities(s, entities)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -2384,8 +2384,8 @@ func TestValidateActionInScope(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2397,7 +2397,7 @@ func TestValidateActionInScope(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -2420,12 +2420,12 @@ func TestInferTypeWithAllExtensions(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -2470,12 +2470,12 @@ func TestInferSetTypeEdgeCases(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -2511,8 +2511,8 @@ func TestCheckEntityTypeKnown(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2524,7 +2524,7 @@ func TestCheckEntityTypeKnown(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid for known entity type, got errors: %v", result.Errors)
 	}
@@ -2537,7 +2537,7 @@ func TestCheckEntityTypeKnown(t *testing.T) {
 	policies2 := cedar.NewPolicySet()
 	policies2.Add("test2", &policy2)
 
-	result = ValidatePolicies(&s, policies2)
+	result = ValidatePolicies(s, policies2)
 	if !result.Valid {
 		t.Errorf("Expected valid for Action type, got errors: %v", result.Errors)
 	}
@@ -2562,8 +2562,8 @@ func TestValidateRequestWithWrongResourceType(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2575,7 +2575,7 @@ func TestValidateRequestWithWrongResourceType(t *testing.T) {
 		Context:   types.NewRecord(types.RecordMap{}),
 	}
 
-	result := ValidateRequest(&s, req)
+	result := ValidateRequest(s, req)
 	if result.Valid {
 		t.Error("Expected invalid request for wrong resource type")
 	}
@@ -2603,12 +2603,12 @@ func TestValidateContextWithNonRecord(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -2639,12 +2639,12 @@ func TestTypeInListWithNonEmptyList(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -2690,8 +2690,8 @@ func TestTypecheckVariableContext(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2703,7 +2703,7 @@ func TestTypecheckVariableContext(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -2734,8 +2734,8 @@ func TestTypecheckUnionResourceTypes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2747,7 +2747,7 @@ func TestTypecheckUnionResourceTypes(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -2777,8 +2777,8 @@ func TestTypecheckInOperatorInvalidOperands(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2808,7 +2808,7 @@ func TestTypecheckInOperatorInvalidOperands(t *testing.T) {
 			}
 			policies.Add("test", &policy)
 
-			result := ValidatePolicies(&s, policies)
+			result := ValidatePolicies(s, policies)
 
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
@@ -2844,8 +2844,8 @@ func TestTypecheckAccessOnNonEntity(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2857,7 +2857,7 @@ func TestTypecheckAccessOnNonEntity(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if result.Valid {
 		t.Error("Expected invalid when accessing attribute on non-entity")
 	}
@@ -2882,8 +2882,8 @@ func TestScopeTypeIsIn(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2895,7 +2895,7 @@ func TestScopeTypeIsIn(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -2918,8 +2918,8 @@ func TestValidateEntitiesWithActionEntity(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2928,7 +2928,7 @@ func TestValidateEntitiesWithActionEntity(t *testing.T) {
 		types.EntityUID{Type: "Action", ID: "view"}: types.Entity{},
 	}
 
-	result := ValidateEntities(&s, entities)
+	result := ValidateEntities(s, entities)
 	if !result.Valid {
 		t.Errorf("Expected valid for Action entity, got errors: %v", result.Errors)
 	}
@@ -2953,8 +2953,8 @@ func TestExtractScopeTypeWithScopeIn(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -2966,7 +2966,7 @@ func TestExtractScopeTypeWithScopeIn(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	// This should be valid because when extractScopeType returns empty, checkScopeTypeAllowed returns early
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
@@ -2990,8 +2990,8 @@ func TestTypecheckExtensionCallAllFunctions(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3038,7 +3038,7 @@ func TestTypecheckExtensionCallAllFunctions(t *testing.T) {
 			policies.Add("test", &policy)
 
 			// We just want to exercise the typecheck code path, not check validity
-			_ = ValidatePolicies(&s, policies)
+			_ = ValidatePolicies(s, policies)
 		})
 	}
 }
@@ -3060,8 +3060,8 @@ func TestTypecheckVariableUnknownVariable(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3073,7 +3073,7 @@ func TestTypecheckVariableUnknownVariable(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -3086,7 +3086,7 @@ func TestTypecheckVariableUnknownVariable(t *testing.T) {
 	policies2 := cedar.NewPolicySet()
 	policies2.Add("test2", &policy2)
 
-	result = ValidatePolicies(&s, policies2)
+	result = ValidatePolicies(s, policies2)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -3116,8 +3116,8 @@ func TestTypecheckComparisonOperators(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3141,7 +3141,7 @@ func TestTypecheckComparisonOperators(t *testing.T) {
 			}
 			policies.Add("test", &policy)
 
-			result := ValidatePolicies(&s, policies)
+			result := ValidatePolicies(s, policies)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -3173,8 +3173,8 @@ func TestTypecheckArithmeticOperators(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3196,7 +3196,7 @@ func TestTypecheckArithmeticOperators(t *testing.T) {
 			}
 			policies.Add("test", &policy)
 
-			result := ValidatePolicies(&s, policies)
+			result := ValidatePolicies(s, policies)
 			if !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -3229,8 +3229,8 @@ func TestTypecheckBooleanBinaryOperators(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3251,7 +3251,7 @@ func TestTypecheckBooleanBinaryOperators(t *testing.T) {
 			}
 			policies.Add("test", &policy)
 
-			result := ValidatePolicies(&s, policies)
+			result := ValidatePolicies(s, policies)
 			if !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -3283,8 +3283,8 @@ func TestTypecheckEqualityOperators(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3305,7 +3305,7 @@ func TestTypecheckEqualityOperators(t *testing.T) {
 			}
 			policies.Add("test", &policy)
 
-			result := ValidatePolicies(&s, policies)
+			result := ValidatePolicies(s, policies)
 			if !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -3331,8 +3331,8 @@ func TestUnifyTypes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3344,7 +3344,7 @@ func TestUnifyTypes(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -3369,8 +3369,8 @@ func TestResolveEntityScopeTypesWithAllScope(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3383,7 +3383,7 @@ func TestResolveEntityScopeTypesWithAllScope(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -3406,8 +3406,8 @@ func TestTypecheckSetLiteralEmpty(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3419,7 +3419,7 @@ func TestTypecheckSetLiteralEmpty(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -3444,8 +3444,8 @@ func TestTypecheckWithNilNode(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3457,7 +3457,7 @@ func TestTypecheckWithNilNode(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -3487,8 +3487,8 @@ func TestConditionMustBeBoolean(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3500,7 +3500,7 @@ func TestConditionMustBeBoolean(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if result.Valid {
 		t.Error("Expected invalid when condition is not boolean")
 	}
@@ -3516,12 +3516,12 @@ func TestInferTypeUnknown(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -3555,8 +3555,8 @@ func TestValidateResourceScopeWithIsIn(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3568,7 +3568,7 @@ func TestValidateResourceScopeWithIsIn(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -3621,12 +3621,12 @@ func TestSchemaWithTopLevelContext(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	result := ValidatePolicies(&s, cedar.NewPolicySet())
+	result := ValidatePolicies(s, cedar.NewPolicySet())
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -3666,8 +3666,8 @@ func TestTypecheckVariableMultiplePrincipalTypes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3679,7 +3679,7 @@ func TestTypecheckVariableMultiplePrincipalTypes(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	// This may produce errors since principal type is ambiguous
 	_ = result
 }
@@ -3718,8 +3718,8 @@ func TestTypecheckResourceVariable(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3731,7 +3731,7 @@ func TestTypecheckResourceVariable(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -3756,8 +3756,8 @@ func TestCheckScopeTypeNotAllowed(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3769,7 +3769,7 @@ func TestCheckScopeTypeNotAllowed(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if result.Valid {
 		t.Error("Expected invalid for resource type not in allowed list")
 	}
@@ -3803,12 +3803,12 @@ func TestParseJSONTypeVariants(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	_, err := New(&s)
+	_, err = New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -3834,8 +3834,8 @@ func TestTypecheckUnknownVariableName(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3847,7 +3847,7 @@ func TestTypecheckUnknownVariableName(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -3878,8 +3878,8 @@ func TestValidateContextMissingOptionalAttribute(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3894,7 +3894,7 @@ func TestValidateContextMissingOptionalAttribute(t *testing.T) {
 		}),
 	}
 
-	result := ValidateRequest(&s, req)
+	result := ValidateRequest(s, req)
 	if !result.Valid {
 		t.Errorf("Expected valid request, got error: %s", result.Error)
 	}
@@ -3924,8 +3924,8 @@ func TestValidateContextWrongAttributeType(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3939,7 +3939,7 @@ func TestValidateContextWrongAttributeType(t *testing.T) {
 		}),
 	}
 
-	result := ValidateRequest(&s, req)
+	result := ValidateRequest(s, req)
 	if result.Valid {
 		t.Error("Expected invalid request for wrong context attribute type")
 	}
@@ -3960,8 +3960,8 @@ func TestAllEntityTypesPath(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -3974,7 +3974,7 @@ func TestAllEntityTypesPath(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -3994,12 +3994,12 @@ func TestSchemaWithNullNamespace(t *testing.T) {
 		"App2": null
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	_, err := New(&s)
+	_, err = New(s)
 	if err != nil {
 		t.Errorf("Expected success with null namespace, got error: %v", err)
 	}
@@ -4125,12 +4125,12 @@ func TestSchemaParserCoverage(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var s schema.Schema
-			if err := s.UnmarshalJSON([]byte(tc.schemaJSON)); err != nil {
+			s, err := schema.NewFromJSON([]byte(tc.schemaJSON))
+			if err != nil {
 				t.Fatalf("Failed to parse schema: %v", err)
 			}
 
-			_, err := New(&s)
+			_, err = New(s)
 			if tc.wantErr && err == nil {
 				t.Error("Expected error, got nil")
 			}
@@ -4172,8 +4172,8 @@ func TestTypecheckContextWithoutActionConstraint(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -4186,7 +4186,7 @@ func TestTypecheckContextWithoutActionConstraint(t *testing.T) {
 	policies.Add("test", &policy)
 
 	// Should pass since context type is unknown/generic
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -4222,8 +4222,8 @@ func TestTypecheckAccessOnRecordType(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -4235,7 +4235,7 @@ func TestTypecheckAccessOnRecordType(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -4260,8 +4260,8 @@ func TestCheckEntityTypeWithAction(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -4273,7 +4273,7 @@ func TestCheckEntityTypeWithAction(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -4304,8 +4304,8 @@ func TestTypecheckRecordAccessUnknownAttribute(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -4318,7 +4318,7 @@ func TestTypecheckRecordAccessUnknownAttribute(t *testing.T) {
 	policies.Add("test", &policy)
 
 	// Should pass because accessing unknown attribute returns UnknownType
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid, got errors: %v", result.Errors)
 	}
@@ -4362,8 +4362,8 @@ func TestLevelBasedValidation(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -4423,7 +4423,7 @@ func TestLevelBasedValidation(t *testing.T) {
 			}
 			policies.Add("test", &policy)
 
-			result := ValidatePolicies(&s, policies, WithMaxAttributeLevel(tc.maxLevel))
+			result := ValidatePolicies(s, policies, WithMaxAttributeLevel(tc.maxLevel))
 
 			if tc.wantValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
@@ -4465,13 +4465,13 @@ func TestWithMaxAttributeLevelOption(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
 	// Test that option is applied
-	v, err := New(&s, WithMaxAttributeLevel(2))
+	v, err := New(s, WithMaxAttributeLevel(2))
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -4481,7 +4481,7 @@ func TestWithMaxAttributeLevelOption(t *testing.T) {
 	}
 
 	// Test default value
-	v2, err := New(&s)
+	v2, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -4511,12 +4511,12 @@ func TestNamespacedActions(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -4557,8 +4557,8 @@ func TestNamespacedActionValidation(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -4570,7 +4570,7 @@ func TestNamespacedActionValidation(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	if !result.Valid {
 		t.Errorf("Expected valid policy, got errors: %v", result.Errors)
 	}
@@ -4595,8 +4595,8 @@ func TestStrictEntityValidation(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -4611,13 +4611,13 @@ func TestStrictEntityValidation(t *testing.T) {
 	}
 
 	// Without strict validation, extra attributes should be allowed
-	result := ValidateEntities(&s, entities)
+	result := ValidateEntities(s, entities)
 	if !result.Valid {
 		t.Errorf("Without strict mode, extra attributes should be allowed, got errors: %v", result.Errors)
 	}
 
 	// With strict validation, extra attributes should be rejected
-	result = ValidateEntities(&s, entities, WithStrictEntityValidation())
+	result = ValidateEntities(s, entities, WithStrictEntityValidation())
 	if result.Valid {
 		t.Error("With strict mode, extra attributes should cause validation to fail")
 	} else {
@@ -4648,8 +4648,8 @@ func TestOpenRecordAllowsExtraAttributes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -4664,7 +4664,7 @@ func TestOpenRecordAllowsExtraAttributes(t *testing.T) {
 	}
 
 	// With strict validation, entities without a shape should allow extra attributes
-	result := ValidateEntities(&s, entities, WithStrictEntityValidation())
+	result := ValidateEntities(s, entities, WithStrictEntityValidation())
 	if !result.Valid {
 		t.Errorf("Entity without shape should allow extra attributes even in strict mode, got errors: %v", result.Errors)
 	}
@@ -4690,8 +4690,8 @@ func TestClosedRecordRejectsExtraAttributes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -4706,7 +4706,7 @@ func TestClosedRecordRejectsExtraAttributes(t *testing.T) {
 	}
 
 	// With strict validation, closed records should reject extra attributes
-	result := ValidateEntities(&s, entities, WithStrictEntityValidation())
+	result := ValidateEntities(s, entities, WithStrictEntityValidation())
 	if result.Valid {
 		t.Error("Closed record should reject extra attributes in strict mode")
 	}
@@ -4739,8 +4739,8 @@ func TestExtensionFunctionArgumentValidation(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -4791,7 +4791,7 @@ func TestExtensionFunctionArgumentValidation(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			a := assertPolicyResult(t, result)
 			if tc.expectValid {
 				a.valid()
@@ -4815,12 +4815,12 @@ func TestActionEntityTypeCheck(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -4873,12 +4873,12 @@ func TestActionWithContext(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -4926,12 +4926,12 @@ func TestCommonTypes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -4993,8 +4993,7 @@ func TestSchemaParsingErrors(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var s schema.Schema
-			err := s.UnmarshalJSON([]byte(tc.schemaJSON))
+			s, err := schema.NewFromJSON([]byte(tc.schemaJSON))
 			if tc.wantErr {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -5005,7 +5004,7 @@ func TestSchemaParsingErrors(t *testing.T) {
 				t.Fatalf("Unexpected schema parse error: %v", err)
 			}
 
-			_, err = New(&s)
+			_, err = New(s)
 			if err != nil {
 				t.Errorf("Unexpected validator creation error: %v", err)
 			}
@@ -5045,8 +5044,8 @@ func TestTypecheckVariables(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -5079,7 +5078,7 @@ func TestTypecheckVariables(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -5109,8 +5108,8 @@ func TestExtensionFunctionArgCountErrors(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -5123,7 +5122,7 @@ func TestExtensionFunctionArgCountErrors(t *testing.T) {
 	}
 	policies.Add("test", &policy)
 
-	result := ValidatePolicies(&s, policies)
+	result := ValidatePolicies(s, policies)
 	// This should be valid - correct number of args
 	if !result.Valid {
 		t.Errorf("Expected valid policy, got errors: %v", result.Errors)
@@ -5149,8 +5148,8 @@ func TestEntityTypeScopeValidation(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -5196,7 +5195,7 @@ func TestEntityTypeScopeValidation(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			a := assertPolicyResult(t, result)
 			if tc.expectValid {
 				a.valid()
@@ -5235,8 +5234,8 @@ func TestSetTypeInference(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -5264,7 +5263,7 @@ func TestSetTypeInference(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -5290,8 +5289,8 @@ func TestRecordLiteralTypeInference(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -5314,7 +5313,7 @@ func TestRecordLiteralTypeInference(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -5348,8 +5347,8 @@ func TestConditionalExpressions(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -5374,7 +5373,7 @@ func TestConditionalExpressions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			a := assertPolicyResult(t, result)
 			if tc.expectValid {
 				a.valid()
@@ -5413,8 +5412,8 @@ func TestActionInSetValidation(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -5439,7 +5438,7 @@ func TestActionInSetValidation(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := validatePolicyString(t, &s, tc.policy)
+			result := validatePolicyString(t, s, tc.policy)
 			a := assertPolicyResult(t, result)
 			if tc.expectValid {
 				a.valid()
@@ -5469,8 +5468,8 @@ func TestEntityValidationWithParents(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -5515,7 +5514,7 @@ func TestEntityValidationWithParents(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := ValidateEntities(&s, tc.entities)
+			result := ValidateEntities(s, tc.entities)
 			if tc.expectValid && !result.Valid {
 				t.Errorf("Expected valid, got errors: %v", result.Errors)
 			}
@@ -5560,12 +5559,12 @@ func TestExtensionTypesInSchema(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -5620,12 +5619,12 @@ func TestEntityTypeReference(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -5669,12 +5668,12 @@ func TestSetTypeInSchema(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -5735,12 +5734,12 @@ func TestNestedRecordTypes(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -5799,12 +5798,12 @@ func TestActionMemberOf(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -5834,12 +5833,12 @@ func TestInferTypeFromValue(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
-	v, err := New(&s)
+	v, err := New(s)
 	if err != nil {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
@@ -5894,8 +5893,8 @@ func TestContextValidationStrict(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -5907,7 +5906,7 @@ func TestContextValidationStrict(t *testing.T) {
 		Context:   types.NewRecord(types.RecordMap{"ip": types.String("192.168.1.1")}),
 	}
 
-	result := ValidateRequest(&s, validReq)
+	result := ValidateRequest(s, validReq)
 	if !result.Valid {
 		t.Errorf("Expected valid request, got error: %s", result.Error)
 	}
@@ -5920,7 +5919,7 @@ func TestContextValidationStrict(t *testing.T) {
 		Context:   types.NewRecord(types.RecordMap{}),
 	}
 
-	result = ValidateRequest(&s, invalidReq)
+	result = ValidateRequest(s, invalidReq)
 	if result.Valid {
 		t.Error("Expected invalid request for missing required context")
 	}
