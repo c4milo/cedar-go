@@ -17,7 +17,6 @@ package validator
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"strings"
 
 	"github.com/cedar-policy/cedar-go/types"
@@ -37,7 +36,6 @@ type jsonEntityType struct {
 
 type jsonAction struct {
 	AppliesTo *jsonAppliesTo  `json:"appliesTo,omitempty"`
-	Context   *jsonType       `json:"context,omitempty"`
 	MemberOf  []jsonActionRef `json:"memberOf,omitempty"`
 }
 
@@ -68,19 +66,12 @@ type jsonAttr struct {
 }
 
 // parseSchemaJSON parses the JSON schema into type information.
-// Supports both namespace-based format (map[string]*jsonNamespace) and flat format.
+// The schema package normalizes all schema formats to namespace-based format,
+// so we only need to handle that format here.
 func (v *Validator) parseSchemaJSON(data []byte) error {
-	// First try namespace-based format
 	var namespaces map[string]*jsonNamespace
 	if err := json.Unmarshal(data, &namespaces); err != nil {
 		return fmt.Errorf("failed to parse schema JSON: %w", err)
-	}
-
-	// Check if this looks like a namespace-based schema or flat schema
-	// A flat schema has keys like "entityTypes" and "actions" at the top level
-	// which would be parsed as namespace names
-	if v.looksLikeFlatSchema(namespaces) {
-		return v.parseFlatSchemaJSON(data)
 	}
 
 	// Process namespace-based schema
@@ -94,25 +85,6 @@ func (v *Validator) parseSchemaJSON(data []byte) error {
 	}
 
 	return nil
-}
-
-// looksLikeFlatSchema detects if the parsed namespaces are actually a flat schema.
-// In flat format, "entityTypes" and "actions" appear as namespace names.
-func (v *Validator) looksLikeFlatSchema(namespaces map[string]*jsonNamespace) bool {
-	_, hasEntityTypes := namespaces["entityTypes"]
-	_, hasActions := namespaces["actions"]
-	return hasEntityTypes || hasActions
-}
-
-// parseFlatSchemaJSON parses a flat schema format where entityTypes and actions
-// are at the top level (not wrapped in a namespace).
-func (v *Validator) parseFlatSchemaJSON(data []byte) error {
-	var flat jsonNamespace
-	if err := json.Unmarshal(data, &flat); err != nil {
-		return fmt.Errorf("failed to parse flat schema JSON: %w", err)
-	}
-
-	return v.parseNamespace("", &flat)
 }
 
 // parseNamespace processes a single namespace from the schema.
@@ -227,10 +199,6 @@ func (v *Validator) parseAction(nsName, name string, act *jsonAction) (*ActionTy
 		return nil, err
 	}
 
-	if err := v.parseActionContext(info, nsName, name, act.Context); err != nil {
-		return nil, err
-	}
-
 	v.parseActionMemberOf(info, nsName, act.MemberOf)
 
 	return info, nil
@@ -280,21 +248,6 @@ func qualifyTypeName(namespace, typeName string) string {
 		return typeName
 	}
 	return namespace + "::" + typeName
-}
-
-// parseActionContext processes the top-level context of an action.
-func (v *Validator) parseActionContext(info *ActionTypeInfo, nsName, actionName string, context *jsonType) error {
-	if context == nil {
-		return nil
-	}
-
-	ctx, err := v.parseRecordTypeWithOpen(context)
-	if err != nil {
-		return fmt.Errorf("failed to parse action %s context: %w", actionName, err)
-	}
-	// Merge with existing context (from appliesTo)
-	maps.Copy(info.Context.Attributes, ctx.Attributes)
-	return nil
 }
 
 // parseActionMemberOf processes the memberOf section of an action.

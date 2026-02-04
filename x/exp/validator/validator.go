@@ -565,19 +565,81 @@ func (v *Validator) checkEntityTypeStrict(t types.EntityType, scopeName string, 
 func (v *Validator) validateActionScope(scope ast.IsScopeNode, errs *[]string) {
 	switch s := scope.(type) {
 	case ast.ScopeTypeEq:
-		if _, ok := v.actionTypes[s.Entity]; !ok {
+		info, ok := v.actionTypes[s.Entity]
+		if !ok {
 			*errs = append(*errs, fmt.Sprintf("action scope references unknown action: %s", s.Entity))
+		} else if !v.actionHasValidAppliesTo(info) {
+			// An action without appliesTo (no principalTypes AND no resourceTypes)
+			// makes the policy impossible - Lean rejects with "unknownEntity"
+			*errs = append(*errs, fmt.Sprintf("impossiblePolicy: action %s has no valid appliesTo configuration", s.Entity))
 		}
 	case ast.ScopeTypeIn:
 		// Action 'in' might reference an action group, which may not be explicitly defined.
 		// This is allowed in Cedar.
 	case ast.ScopeTypeInSet:
+		allInvalid := true
 		for _, entity := range s.Entities {
-			if _, ok := v.actionTypes[entity]; !ok {
+			info, ok := v.actionTypes[entity]
+			if !ok {
 				*errs = append(*errs, fmt.Sprintf("action scope references unknown action: %s", entity))
+			} else if v.actionHasValidAppliesTo(info) {
+				allInvalid = false
 			}
 		}
+		// If all actions in the set have invalid appliesTo, the policy is impossible
+		if allInvalid && len(s.Entities) > 0 {
+			*errs = append(*errs, "impossiblePolicy: no action in set has valid appliesTo configuration")
+		}
 	}
+}
+
+// actionHasValidAppliesTo checks if an action has a valid appliesTo configuration.
+// An action is valid if it has at least one principalType AND at least one resourceType.
+// Additionally, if the types look like they have a non-empty namespace but empty type name
+// (like "Namespace::"), Lean considers this an unknownEntity error.
+func (v *Validator) actionHasValidAppliesTo(info *ActionTypeInfo) bool {
+	if len(info.PrincipalTypes) == 0 || len(info.ResourceTypes) == 0 {
+		return false
+	}
+
+	// Check if ALL types in both lists are "malformed" unknown types.
+	// A malformed unknown type has the pattern "Namespace::" (non-empty namespace, empty type name).
+	// Lean rejects these, but accepts "::" (empty namespace, empty type name).
+	if slices.ContainsFunc(info.PrincipalTypes, v.isMalformedUnknownType) {
+		// Found a malformed type - check if all types are malformed
+		return !v.allTypesMalformed(info.PrincipalTypes, info.ResourceTypes)
+	}
+
+	return true
+}
+
+// isMalformedUnknownType checks if a type has the pattern "Namespace::" (ends with "::" but has content before).
+// This is a type with a non-empty namespace but empty type name, which Lean rejects.
+func (v *Validator) isMalformedUnknownType(et types.EntityType) bool {
+	s := string(et)
+	// Check if it ends with "::" but has something before (not just "::")
+	return strings.HasSuffix(s, "::") && len(s) > 2 && !v.isKnownType(et)
+}
+
+// allTypesMalformed checks if ALL types in both lists are malformed unknown types.
+func (v *Validator) allTypesMalformed(principalTypes, resourceTypes []types.EntityType) bool {
+	for _, pt := range principalTypes {
+		if !v.isMalformedUnknownType(pt) {
+			return false
+		}
+	}
+	for _, rt := range resourceTypes {
+		if !v.isMalformedUnknownType(rt) {
+			return false
+		}
+	}
+	return true
+}
+
+// isKnownType checks if an entity type is defined in the schema or is an action type.
+func (v *Validator) isKnownType(et types.EntityType) bool {
+	_, ok := v.entityTypes[et]
+	return ok || v.isActionEntityType(et)
 }
 
 // validateActionAppliesTo checks that principal and resource types are allowed for the action(s).

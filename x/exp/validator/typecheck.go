@@ -16,6 +16,7 @@ package validator
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/cedar-policy/cedar-go/types"
 	"github.com/cedar-policy/cedar-go/x/exp/ast"
@@ -212,7 +213,7 @@ func (ctx *typeContext) typecheck(node ast.IsNode) CedarType {
 
 	switch n := node.(type) {
 	case ast.NodeValue:
-		return ctx.v.inferType(n.Value)
+		return ctx.typecheckValue(n.Value)
 	case ast.NodeTypeVariable:
 		return ctx.typecheckVariable(n)
 	case ast.NodeTypeOr, ast.NodeTypeAnd:
@@ -339,6 +340,18 @@ func (ctx *typeContext) typecheckRecordLiteral(n ast.NodeTypeRecord) CedarType {
 	return RecordType{Attributes: attrs}
 }
 
+// typecheckValue handles literal values and checks for unknown entity types.
+func (ctx *typeContext) typecheckValue(val types.Value) CedarType {
+	// Check for entity literals with unknown entity types
+	if euid, ok := val.(types.EntityUID); ok {
+		// Check if this entity type exists in the schema
+		if _, exists := ctx.v.entityTypes[euid.Type]; !exists && !ctx.v.isActionEntityType(euid.Type) {
+			ctx.errors = append(ctx.errors, fmt.Sprintf("unknownEntity: entity type %s is not defined in schema", euid.Type))
+		}
+	}
+	return ctx.v.inferType(val)
+}
+
 // typecheckVariable handles variable references (principal, action, resource, context)
 func (ctx *typeContext) typecheckVariable(n ast.NodeTypeVariable) CedarType {
 	switch string(n.Name) {
@@ -417,7 +430,52 @@ func (ctx *typeContext) typecheckEquality(node ast.IsNode) CedarType {
 		}
 	}
 
+	// Check for impossible equality between principal and resource.
+	// When comparing principal == resource (or resource == principal),
+	// if their type sets are completely disjoint, the comparison can never be true,
+	// making the policy impossible. This matches Lean's impossiblePolicy check.
+	ctx.checkPrincipalResourceEquality(left, right)
+
 	return BoolType{}
+}
+
+// checkPrincipalResourceEquality detects impossible equality between principal and resource.
+// When principal and resource have disjoint type sets, comparing them for equality
+// will always be false, making any policy with such a condition impossible.
+func (ctx *typeContext) checkPrincipalResourceEquality(left, right ast.IsNode) {
+	// Check if this is a principal == resource or resource == principal comparison
+	leftVar, leftIsVar := left.(ast.NodeTypeVariable)
+	rightVar, rightIsVar := right.(ast.NodeTypeVariable)
+	if !leftIsVar || !rightIsVar {
+		return
+	}
+
+	isPrincipalResource := (string(leftVar.Name) == "principal" && string(rightVar.Name) == "resource") ||
+		(string(leftVar.Name) == "resource" && string(rightVar.Name) == "principal")
+	if !isPrincipalResource {
+		return
+	}
+
+	// Check if principal and resource types are disjoint
+	if len(ctx.principalTypes) == 0 || len(ctx.resourceTypes) == 0 {
+		// If either type set is empty/unknown, we can't determine impossibility
+		return
+	}
+
+	// Check for any overlap between principal and resource types
+	hasOverlap := false
+	for _, pt := range ctx.principalTypes {
+		if slices.Contains(ctx.resourceTypes, pt) {
+			hasOverlap = true
+			break
+		}
+	}
+
+	if !hasOverlap {
+		// Types are disjoint - principal and resource can never be equal
+		ctx.errors = append(ctx.errors,
+			"impossiblePolicy: principal and resource have disjoint types, equality can never be true")
+	}
 }
 
 // typecheckComparison handles <, <=, >, >= operators
@@ -613,6 +671,8 @@ func (ctx *typeContext) typecheckExtensionCall(n ast.NodeTypeExtensionCall) Ceda
 	// IP address constructor: ip(String) -> ipaddr
 	case "ip", "ipaddr":
 		ctx.expectArgs(funcName, argTypes, StringType{})
+		// Validate IP address literal if argument is a literal string
+		ctx.validateExtensionLiteral(n.Args, "ip", isValidIPLiteral)
 		return ExtensionType{Name: "ipaddr"}
 
 	// IP address methods (called on ipaddr, no additional args)
@@ -628,6 +688,7 @@ func (ctx *typeContext) typecheckExtensionCall(n ast.NodeTypeExtensionCall) Ceda
 	// Decimal constructor: decimal(String) -> decimal
 	case "decimal":
 		ctx.expectArgs(funcName, argTypes, StringType{})
+		ctx.validateExtensionLiteral(n.Args, "decimal", isValidDecimalLiteral)
 		return ExtensionType{Name: "decimal"}
 
 	// Decimal comparison methods: decimal.lessThan(decimal) -> Bool
@@ -638,11 +699,13 @@ func (ctx *typeContext) typecheckExtensionCall(n ast.NodeTypeExtensionCall) Ceda
 	// Datetime constructor: datetime(String) -> datetime
 	case "datetime":
 		ctx.expectArgs(funcName, argTypes, StringType{})
+		ctx.validateExtensionLiteral(n.Args, "datetime", isValidDatetimeLiteral)
 		return ExtensionType{Name: "datetime"}
 
 	// Duration constructor: duration(String) -> duration
 	case "duration":
 		ctx.expectArgs(funcName, argTypes, StringType{})
+		ctx.validateExtensionLiteral(n.Args, "duration", isValidDurationLiteral)
 		return ExtensionType{Name: "duration"}
 
 	// Datetime arithmetic: datetime.offset(duration) -> datetime
@@ -686,4 +749,69 @@ func (ctx *typeContext) expectArgs(funcName string, actual []CedarType, expected
 				fmt.Sprintf("%s() argument %d: expected %s, got %s", funcName, i+1, exp, act))
 		}
 	}
+}
+
+// validateExtensionLiteral validates extension constructor literals.
+// If the first argument is a literal string, it checks if it's valid using the validator function.
+func (ctx *typeContext) validateExtensionLiteral(args []ast.IsNode, funcName string, isValid func(string) bool) {
+	if len(args) == 0 {
+		return
+	}
+	// Check if the argument is a literal string value
+	if nodeVal, ok := args[0].(ast.NodeValue); ok {
+		if str, ok := nodeVal.Value.(types.String); ok {
+			if !isValid(string(str)) {
+				ctx.errors = append(ctx.errors,
+					fmt.Sprintf("extensionErr: invalid %s literal: %q", funcName, string(str)))
+			}
+		}
+	}
+}
+
+// isValidIPLiteral checks if a string is a valid IP address or CIDR notation.
+func isValidIPLiteral(s string) bool {
+	if s == "" {
+		return false
+	}
+	// Try parsing as IP address
+	if _, err := types.ParseIPAddr(s); err == nil {
+		return true
+	}
+	return false
+}
+
+// isValidDecimalLiteral checks if a string is a valid decimal literal.
+func isValidDecimalLiteral(s string) bool {
+	if s == "" {
+		return false
+	}
+	// Try parsing as decimal
+	if _, err := types.ParseDecimal(s); err == nil {
+		return true
+	}
+	return false
+}
+
+// isValidDatetimeLiteral checks if a string is a valid datetime literal.
+func isValidDatetimeLiteral(s string) bool {
+	if s == "" {
+		return false
+	}
+	// Try parsing as datetime
+	if _, err := types.ParseDatetime(s); err == nil {
+		return true
+	}
+	return false
+}
+
+// isValidDurationLiteral checks if a string is a valid duration literal.
+func isValidDurationLiteral(s string) bool {
+	if s == "" {
+		return false
+	}
+	// Try parsing as duration
+	if _, err := types.ParseDuration(s); err == nil {
+		return true
+	}
+	return false
 }
