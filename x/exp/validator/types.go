@@ -91,11 +91,24 @@ type AnyEntityType struct{}
 func (AnyEntityType) isCedarType()   {}
 func (AnyEntityType) String() string { return "Entity" }
 
-// UnknownType represents an unknown or error type.
+// UnknownType represents an unknown or undeterminable type.
+// This is used when the type cannot be determined due to missing context
+// (e.g., action scope is 'all' so context type is unknown).
+// Unknown types are treated leniently in type checking.
 type UnknownType struct{}
 
 func (UnknownType) isCedarType()   {}
 func (UnknownType) String() string { return "Unknown" }
+
+// UnspecifiedType represents an attribute whose type was not specified in the schema.
+// This is different from UnknownType - it indicates a schema that is malformed or incomplete.
+// Using an UnspecifiedType attribute in a context that requires a specific type (like boolean
+// conditions) is a validation error. However, comparisons involving UnspecifiedType are allowed
+// (the comparison itself returns Bool).
+type UnspecifiedType struct{}
+
+func (UnspecifiedType) isCedarType()   {}
+func (UnspecifiedType) String() string { return "Unspecified" }
 
 // TypesMatch checks if actual type is compatible with expected type.
 func TypesMatch(expected, actual CedarType) bool {

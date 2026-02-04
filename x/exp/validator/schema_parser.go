@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strings"
 
 	"github.com/cedar-policy/cedar-go/types"
 )
@@ -142,7 +143,7 @@ func (v *Validator) parseCommonTypes(nsName string, commonTypes map[string]jsonT
 func (v *Validator) parseEntityTypes(nsName string, entityTypes map[string]jsonEntityType) error {
 	for name, et := range entityTypes {
 		fullName := qualifiedName(nsName, name)
-		info, err := v.parseEntityType(fullName, &et)
+		info, err := v.parseEntityType(nsName, fullName, &et)
 		if err != nil {
 			return err
 		}
@@ -152,7 +153,7 @@ func (v *Validator) parseEntityTypes(nsName string, entityTypes map[string]jsonE
 }
 
 // parseEntityType processes a single entity type.
-func (v *Validator) parseEntityType(fullName string, et *jsonEntityType) (*EntityTypeInfo, error) {
+func (v *Validator) parseEntityType(nsName, fullName string, et *jsonEntityType) (*EntityTypeInfo, error) {
 	info := &EntityTypeInfo{
 		Attributes:    make(map[string]AttributeType),
 		MemberOfTypes: make([]types.EntityType, 0, len(et.MemberOfTypes)),
@@ -162,8 +163,14 @@ func (v *Validator) parseEntityType(fullName string, et *jsonEntityType) (*Entit
 		return nil, err
 	}
 
+	// Qualify and deduplicate memberOfTypes using a set (Cedar Rust deduplicates these)
+	seen := make(map[types.EntityType]struct{})
 	for _, mot := range et.MemberOfTypes {
-		info.MemberOfTypes = append(info.MemberOfTypes, types.EntityType(mot))
+		et := types.EntityType(qualifyTypeName(nsName, mot))
+		if _, exists := seen[et]; !exists {
+			info.MemberOfTypes = append(info.MemberOfTypes, et)
+			seen[et] = struct{}{}
+		}
 	}
 
 	return info, nil
@@ -235,12 +242,24 @@ func (v *Validator) parseAppliesTo(info *ActionTypeInfo, nsName, actionName stri
 		return nil
 	}
 
+	// Qualify and deduplicate principal types using a set (Cedar Rust deduplicates these)
+	seenPrincipal := make(map[types.EntityType]struct{})
 	for _, pt := range appliesTo.PrincipalTypes {
-		info.PrincipalTypes = append(info.PrincipalTypes, types.EntityType(pt))
+		et := types.EntityType(qualifyTypeName(nsName, pt))
+		if _, exists := seenPrincipal[et]; !exists {
+			info.PrincipalTypes = append(info.PrincipalTypes, et)
+			seenPrincipal[et] = struct{}{}
+		}
 	}
 
+	// Qualify and deduplicate resource types using a set
+	seenResource := make(map[types.EntityType]struct{})
 	for _, rt := range appliesTo.ResourceTypes {
-		info.ResourceTypes = append(info.ResourceTypes, types.EntityType(rt))
+		et := types.EntityType(qualifyTypeName(nsName, rt))
+		if _, exists := seenResource[et]; !exists {
+			info.ResourceTypes = append(info.ResourceTypes, et)
+			seenResource[et] = struct{}{}
+		}
 	}
 
 	if appliesTo.Context != nil {
@@ -252,6 +271,15 @@ func (v *Validator) parseAppliesTo(info *ActionTypeInfo, nsName, actionName stri
 	}
 
 	return nil
+}
+
+// qualifyTypeName adds the namespace prefix to a type name if it doesn't already have one.
+// Type names that already contain "::" are considered fully qualified.
+func qualifyTypeName(namespace, typeName string) string {
+	if namespace == "" || strings.Contains(typeName, "::") {
+		return typeName
+	}
+	return namespace + "::" + typeName
 }
 
 // parseActionContext processes the top-level context of an action.
@@ -375,14 +403,28 @@ func (v *Validator) parseExtensionType(name string) CedarType {
 }
 
 // parseTypeReference handles common type or entity type references.
+// For type references that cannot be resolved (not a common type and not a known
+// entity type), returns UnknownType to allow graceful handling during type checking.
+// This matches Lean's behavior where unknown type references don't cause hard failures.
 func (v *Validator) parseTypeReference(typeName string) (CedarType, error) {
 	if ct, ok := v.commonTypes[typeName]; ok {
 		return ct, nil
 	}
+	// Check if this is a known entity type reference.
+	// Note: Entity types may not all be parsed yet when this is called during
+	// attribute parsing, so we need to be lenient here.
 	if typeName != "" {
+		// We return EntityType for valid-looking type names, but the type checker
+		// will validate that the entity type actually exists when attributes are accessed.
+		// For completely invalid type references (like numeric strings), we could
+		// return UnknownType, but to maintain backward compatibility and allow
+		// forward references, we return EntityType and let the type checker handle it.
 		return EntityType{Name: types.EntityType(typeName)}, nil
 	}
-	return UnknownType{}, nil
+	// Empty type name means the type was not specified in the schema.
+	// Return UnspecifiedType to mark this as a schema error that should be
+	// caught when the attribute is used in a context requiring a specific type.
+	return UnspecifiedType{}, nil
 }
 
 // parseJSONAttr converts a JSON attribute definition to an AttributeType.

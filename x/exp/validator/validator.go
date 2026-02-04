@@ -70,6 +70,12 @@ type Validator struct {
 	// strictEntityValidation when true, validates that entities don't have
 	// attributes that aren't declared in the schema.
 	strictEntityValidation bool
+	// allowUnknownEntityTypes when true, allows unknown entity types in
+	// principalTypes and resourceTypes. This matches Lean's behavior where
+	// unknown types are handled at policy validation time (impossiblePolicy).
+	// By default (false), unknown types are rejected at schema validation
+	// time, matching Cedar Rust behavior.
+	allowUnknownEntityTypes bool
 }
 
 // ValidatorOption configures a Validator.
@@ -88,6 +94,19 @@ type ValidatorOption func(*Validator)
 func WithMaxAttributeLevel(level int) ValidatorOption {
 	return func(v *Validator) {
 		v.maxAttributeLevel = level
+	}
+}
+
+// WithAllowUnknownEntityTypes allows unknown entity types in memberOfTypes,
+// principalTypes, and resourceTypes. This matches Lean's behavior where
+// unknown types are accepted at schema validation time and handled during
+// policy validation via the "impossiblePolicy" check.
+//
+// By default, unknown entity types are rejected at schema validation time,
+// matching Cedar Rust behavior.
+func WithAllowUnknownEntityTypes() ValidatorOption {
+	return func(v *Validator) {
+		v.allowUnknownEntityTypes = true
 	}
 }
 
@@ -128,6 +147,10 @@ type ActionTypeInfo struct {
 
 // New creates a new Validator from a schema.
 // Options can be provided to configure the validator behavior.
+//
+// This function validates schema well-formedness (no cycles in memberOfTypes,
+// no duplicate types, referenced types exist, etc.) similar to how Cedar Rust
+// validates when converting to ValidatorSchema.
 func New(s *schema.Schema, opts ...ValidatorOption) (*Validator, error) {
 	if s == nil {
 		return nil, fmt.Errorf("schema cannot be nil")
@@ -148,6 +171,11 @@ func New(s *schema.Schema, opts ...ValidatorOption) (*Validator, error) {
 
 	if err := v.parseSchema(); err != nil {
 		return nil, fmt.Errorf("failed to parse schema: %w", err)
+	}
+
+	// Validate schema well-formedness (cycles, duplicates, unknown references)
+	if err := v.validateSchemaWellFormedness(); err != nil {
+		return nil, fmt.Errorf("schema validation failed: %w", err)
 	}
 
 	return v, nil
@@ -248,6 +276,13 @@ func (v *Validator) validatePolicy(id cedar.PolicyID, policy *cedar.Policy) []Po
 	publicAST := policy.AST()
 	policyAST := (*ast.Policy)(publicAST)
 
+	// Check for impossible policy - a policy that can never match any valid environment.
+	// This matches Lean's impossiblePolicy check.
+	if v.isSchemaEmpty() {
+		errs = append(errs, PolicyError{PolicyID: id, Message: "impossiblePolicy"})
+		return errs
+	}
+
 	// Check scope constraints reference valid types
 	scopeErrs := v.validatePolicyScope(policyAST)
 	for _, msg := range scopeErrs {
@@ -263,67 +298,101 @@ func (v *Validator) validatePolicy(id cedar.PolicyID, policy *cedar.Policy) []Po
 	return errs
 }
 
+// isSchemaEmpty returns true if the schema has no valid environments.
+// A schema is "empty" for policy validation if no action has a valid appliesTo
+// configuration (non-empty principalTypes AND resourceTypes).
+// This matches Lean's behavior where policies are "impossible" if there are
+// no valid (principal, action, resource) combinations.
+func (v *Validator) isSchemaEmpty() bool {
+	for _, info := range v.actionTypes {
+		// An action has a valid environment if it has at least one principal type
+		// AND at least one resource type in its appliesTo
+		if len(info.PrincipalTypes) > 0 && len(info.ResourceTypes) > 0 {
+			return false // Found at least one valid environment
+		}
+	}
+	return true // No valid environments
+}
+
 // validateEntity validates a single entity.
 func (v *Validator) validateEntity(uid types.EntityUID, entity types.Entity) []EntityError {
-	var errs []EntityError
-
-	// Check if entity type is defined
 	entityInfo, ok := v.entityTypes[uid.Type]
 	if !ok {
-		// Check if it's an action entity (Action or Namespace::Action)
-		if v.isActionEntityType(uid.Type) {
-			return errs // Action entities are handled differently
-		}
-		errs = append(errs, EntityError{
-			EntityUID: uid,
-			Message:   fmt.Sprintf("entity type %s is not defined in schema", uid.Type),
-		})
-		return errs
+		return v.handleUnknownEntityType(uid)
 	}
 
-	// Validate attributes
-	for attrName, attrType := range entityInfo.Attributes {
-		attrVal, exists := entity.Attributes.Get(types.String(attrName))
-		if !exists {
-			if attrType.Required {
-				errs = append(errs, EntityError{
-					EntityUID: uid,
-					Message:   fmt.Sprintf("required attribute %s is missing", attrName),
-				})
-			}
-			continue
-		}
+	var errs []EntityError
+	errs = append(errs, v.validateEntityAttributes(uid, entity, entityInfo)...)
+	errs = append(errs, v.validateUndeclaredAttributes(uid, entity, entityInfo)...)
+	errs = append(errs, v.validateParentRelationships(uid, entity, entityInfo)...)
+	return errs
+}
 
-		if err := v.validateValue(attrVal, attrType.Type); err != nil {
+// handleUnknownEntityType handles validation when entity type is not in schema.
+func (v *Validator) handleUnknownEntityType(uid types.EntityUID) []EntityError {
+	if v.isActionEntityType(uid.Type) {
+		return nil // Action entities are handled differently
+	}
+	return []EntityError{{
+		EntityUID: uid,
+		Message:   fmt.Sprintf("entity type %s is not defined in schema", uid.Type),
+	}}
+}
+
+// validateEntityAttributes validates all declared attributes of an entity.
+func (v *Validator) validateEntityAttributes(uid types.EntityUID, entity types.Entity, info *EntityTypeInfo) []EntityError {
+	var errs []EntityError
+	for attrName, attrType := range info.Attributes {
+		if err := v.validateEntityAttribute(uid, entity, attrName, attrType); err != nil {
+			errs = append(errs, *err)
+		}
+	}
+	return errs
+}
+
+// validateEntityAttribute validates a single attribute of an entity.
+func (v *Validator) validateEntityAttribute(uid types.EntityUID, entity types.Entity, attrName string, attrType AttributeType) *EntityError {
+	attrVal, exists := entity.Attributes.Get(types.String(attrName))
+	if !exists {
+		if attrType.Required {
+			return &EntityError{EntityUID: uid, Message: fmt.Sprintf("required attribute %s is missing", attrName)}
+		}
+		return nil
+	}
+	if err := v.validateValue(attrVal, attrType.Type); err != nil {
+		return &EntityError{EntityUID: uid, Message: fmt.Sprintf("attribute %s: %v", attrName, err)}
+	}
+	return nil
+}
+
+// validateUndeclaredAttributes checks for undeclared attributes in strict mode.
+func (v *Validator) validateUndeclaredAttributes(uid types.EntityUID, entity types.Entity, info *EntityTypeInfo) []EntityError {
+	if !v.strictEntityValidation || info.OpenRecord {
+		return nil
+	}
+	var errs []EntityError
+	for attrName := range entity.Attributes.All() {
+		if _, declared := info.Attributes[string(attrName)]; !declared {
 			errs = append(errs, EntityError{
 				EntityUID: uid,
-				Message:   fmt.Sprintf("attribute %s: %v", attrName, err),
+				Message:   fmt.Sprintf("attribute %s is not declared in schema", attrName),
 			})
 		}
 	}
+	return errs
+}
 
-	// Check for undeclared attributes in strict mode
-	if v.strictEntityValidation && !entityInfo.OpenRecord {
-		for attrName := range entity.Attributes.All() {
-			if _, declared := entityInfo.Attributes[string(attrName)]; !declared {
-				errs = append(errs, EntityError{
-					EntityUID: uid,
-					Message:   fmt.Sprintf("attribute %s is not declared in schema", attrName),
-				})
-			}
-		}
-	}
-
-	// Validate parent relationships
+// validateParentRelationships validates that parent relationships are allowed.
+func (v *Validator) validateParentRelationships(uid types.EntityUID, entity types.Entity, info *EntityTypeInfo) []EntityError {
+	var errs []EntityError
 	for parent := range entity.Parents.All() {
-		if !v.typeInList(parent.Type, entityInfo.MemberOfTypes) {
+		if !v.typeInList(parent.Type, info.MemberOfTypes) {
 			errs = append(errs, EntityError{
 				EntityUID: uid,
 				Message:   fmt.Sprintf("entity cannot be member of type %s", parent.Type),
 			})
 		}
 	}
-
 	return errs
 }
 
@@ -334,29 +403,47 @@ func (v *Validator) validateContext(context types.Value, expected RecordType) er
 		return fmt.Errorf("context must be a record, got %T", context)
 	}
 
+	if err := v.validateContextAttributes(rec, expected); err != nil {
+		return err
+	}
+	return v.validateContextUndeclaredAttributes(rec, expected)
+}
+
+// validateContextAttributes validates all declared context attributes.
+func (v *Validator) validateContextAttributes(rec types.Record, expected RecordType) error {
 	for attrName, attrType := range expected.Attributes {
-		val, exists := rec.Get(types.String(attrName))
-		if !exists {
-			if attrType.Required {
-				return fmt.Errorf("required context attribute %s is missing", attrName)
-			}
-			continue
-		}
-
-		if err := v.validateValue(val, attrType.Type); err != nil {
-			return fmt.Errorf("context attribute %s: %v", attrName, err)
+		if err := v.validateContextAttribute(rec, attrName, attrType); err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
-	// Check for undeclared attributes in strict mode
-	if v.strictEntityValidation && !expected.OpenRecord {
-		for attrName := range rec.All() {
-			if _, declared := expected.Attributes[string(attrName)]; !declared {
-				return fmt.Errorf("context attribute %s is not declared in schema", attrName)
-			}
+// validateContextAttribute validates a single context attribute.
+func (v *Validator) validateContextAttribute(rec types.Record, attrName string, attrType AttributeType) error {
+	val, exists := rec.Get(types.String(attrName))
+	if !exists {
+		if attrType.Required {
+			return fmt.Errorf("required context attribute %s is missing", attrName)
+		}
+		return nil
+	}
+	if err := v.validateValue(val, attrType.Type); err != nil {
+		return fmt.Errorf("context attribute %s: %v", attrName, err)
+	}
+	return nil
+}
+
+// validateContextUndeclaredAttributes checks for undeclared context attributes in strict mode.
+func (v *Validator) validateContextUndeclaredAttributes(rec types.Record, expected RecordType) error {
+	if !v.strictEntityValidation || expected.OpenRecord {
+		return nil
+	}
+	for attrName := range rec.All() {
+		if _, declared := expected.Attributes[string(attrName)]; !declared {
+			return fmt.Errorf("context attribute %s is not declared in schema", attrName)
 		}
 	}
-
 	return nil
 }
 
@@ -493,25 +580,80 @@ func (v *Validator) validateActionScope(scope ast.IsScopeNode, errs *[]string) {
 	}
 }
 
-// validateActionAppliesTo checks that principal and resource types are allowed for the action
+// validateActionAppliesTo checks that principal and resource types are allowed for the action(s).
+// For action sets (action in [A, B, C]), the scope must be valid for at least one action.
 func (v *Validator) validateActionAppliesTo(policyAST *ast.Policy, errs *[]string) {
-	actionInfo := v.getActionInfo(policyAST.Action)
-	if actionInfo == nil {
+	actionInfos := v.getActionInfos(policyAST.Action)
+	if len(actionInfos) == 0 {
 		return
 	}
 
-	v.checkScopeTypeAllowed(policyAST.Principal, actionInfo.PrincipalTypes, "principal", errs)
-	v.checkScopeTypeAllowed(policyAST.Resource, actionInfo.ResourceTypes, "resource", errs)
+	// Collect the union of all allowed principal/resource types from all applicable actions.
+	// For a policy to be possible, the scope must be compatible with the combined constraints.
+	principalTypes := v.unionPrincipalTypes(actionInfos)
+	resourceTypes := v.unionResourceTypes(actionInfos)
+
+	v.checkScopeTypeAllowed(policyAST.Principal, principalTypes, "principal", errs)
+	v.checkScopeTypeAllowed(policyAST.Resource, resourceTypes, "resource", errs)
 }
 
-// getActionInfo extracts ActionTypeInfo from an action scope if available.
-func (v *Validator) getActionInfo(scope ast.IsScopeNode) *ActionTypeInfo {
-	if s, ok := scope.(ast.ScopeTypeEq); ok {
-		if info, ok := v.actionTypes[s.Entity]; ok {
-			return info
+// getActionInfos extracts ActionTypeInfo(s) from an action scope.
+// Returns slice of action infos for single action or action set.
+// For ScopeTypeAll (unscoped action), returns all action infos.
+func (v *Validator) getActionInfos(scope ast.IsScopeNode) []*ActionTypeInfo {
+	switch s := scope.(type) {
+	case ast.ScopeTypeAll:
+		// For unscoped action (all actions), return all action infos.
+		// This enables impossiblePolicy checking against all possible actions.
+		var infos []*ActionTypeInfo
+		for _, info := range v.actionTypes {
+			infos = append(infos, info)
 		}
+		return infos
+	case ast.ScopeTypeEq:
+		if info, ok := v.actionTypes[s.Entity]; ok {
+			return []*ActionTypeInfo{info}
+		}
+	case ast.ScopeTypeInSet:
+		var infos []*ActionTypeInfo
+		for _, entity := range s.Entities {
+			if info, ok := v.actionTypes[entity]; ok {
+				infos = append(infos, info)
+			}
+		}
+		return infos
 	}
 	return nil
+}
+
+// unionPrincipalTypes returns the union of principal types from multiple action infos.
+func (v *Validator) unionPrincipalTypes(infos []*ActionTypeInfo) []types.EntityType {
+	seen := make(map[types.EntityType]bool)
+	var result []types.EntityType
+	for _, info := range infos {
+		for _, t := range info.PrincipalTypes {
+			if !seen[t] {
+				seen[t] = true
+				result = append(result, t)
+			}
+		}
+	}
+	return result
+}
+
+// unionResourceTypes returns the union of resource types from multiple action infos.
+func (v *Validator) unionResourceTypes(infos []*ActionTypeInfo) []types.EntityType {
+	seen := make(map[types.EntityType]bool)
+	var result []types.EntityType
+	for _, info := range infos {
+		for _, t := range info.ResourceTypes {
+			if !seen[t] {
+				seen[t] = true
+				result = append(result, t)
+			}
+		}
+	}
+	return result
 }
 
 // checkScopeTypeAllowed validates that a scope's entity type is in the allowed list.
@@ -520,25 +662,35 @@ func (v *Validator) checkScopeTypeAllowed(scope ast.IsScopeNode, allowed []types
 		return
 	}
 
-	entityType := v.extractScopeType(scope)
-	if entityType == "" {
-		return
-	}
-
-	if !v.typeInList(entityType, allowed) {
-		*errs = append(*errs, fmt.Sprintf("%s type %s is not allowed for this action (allowed: %v)", scopeName, entityType, allowed))
-	}
-}
-
-// extractScopeType extracts the entity type from a scope node.
-func (v *Validator) extractScopeType(scope ast.IsScopeNode) types.EntityType {
 	switch s := scope.(type) {
 	case ast.ScopeTypeEq:
-		return s.Entity.Type
+		// Action types (Action::...) are special and always allowed - they refer to actions, not principals/resources
+		if v.isActionEntityType(s.Entity.Type) {
+			return
+		}
+		if !v.typeInList(s.Entity.Type, allowed) {
+			*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s type %s is not allowed for this action (allowed: %v)", scopeName, s.Entity.Type, allowed))
+		}
 	case ast.ScopeTypeIs:
-		return s.Type
+		if !v.typeInList(s.Type, allowed) {
+			*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s type %s is not allowed for this action (allowed: %v)", scopeName, s.Type, allowed))
+		}
 	case ast.ScopeTypeIsIn:
-		return s.Type
+		if !v.typeInList(s.Type, allowed) {
+			*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s type %s is not allowed for this action (allowed: %v)", scopeName, s.Type, allowed))
+		}
+	case ast.ScopeTypeIn:
+		// For "resource in Entity::...", check if the entity type is in allowed types.
+		// Lean's impossiblePolicy check requires the scope's entity type to be directly
+		// in the allowed list. It does NOT consider memberOfTypes transitive relationships
+		// for this check (unlike Cedar Rust which does consider them).
+		//
+		// Example: If action has resourceTypes=["Photo"] and policy says "resource in Album::...",
+		// Lean considers this impossiblePolicy because Album is not in ["Photo"], even though
+		// Photo entities can be members of Albums (via Photo.memberOfTypes = ["Album"]).
+		entityType := s.Entity.Type
+		if !v.typeInList(entityType, allowed) {
+			*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s in %s::%s is not satisfiable (allowed types: %v)", scopeName, entityType, s.Entity.ID, allowed))
+		}
 	}
-	return ""
 }

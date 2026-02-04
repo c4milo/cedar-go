@@ -46,8 +46,15 @@ func (v *Validator) typecheckPolicy(p *ast.Policy) []string {
 	for _, cond := range p.Conditions {
 		inferredType := ctx.typecheck(cond.Body)
 
-		// Condition must evaluate to Boolean
-		if !isTypeBoolean(inferredType) && !isTypeUnknown(inferredType) {
+		// Condition must evaluate to Boolean.
+		// We allow UnknownType here for cases where the type can't be determined
+		// (e.g., action scope is 'all' so context type is unknown).
+		// However, UnspecifiedType (attribute with no type in schema) is NOT allowed
+		// as a condition - this is a schema error that should be reported.
+		if _, isUnspecified := inferredType.(UnspecifiedType); isUnspecified {
+			ctx.errors = append(ctx.errors,
+				"condition uses value with unspecified type from schema")
+		} else if !isTypeBoolean(inferredType) && !isTypeUnknown(inferredType) {
 			ctx.errors = append(ctx.errors,
 				fmt.Sprintf("condition must be boolean, got %s", inferredType))
 		}
@@ -71,6 +78,10 @@ func (v *Validator) extractResourceTypes(scope ast.IsResourceScopeNode, actionSc
 // getActionPrincipalTypes extracts principal types from action scope.
 func (v *Validator) getActionPrincipalTypes(actionScope ast.IsActionScopeNode) []types.EntityType {
 	switch a := actionScope.(type) {
+	case ast.ScopeTypeAll:
+		// For unscoped action (all actions), return union of all action's principal types.
+		// This enables type checking even when no specific action is constrained.
+		return v.allActionPrincipalTypes()
 	case ast.ScopeTypeEq:
 		if info, ok := v.actionTypes[a.Entity]; ok {
 			return info.PrincipalTypes
@@ -84,6 +95,10 @@ func (v *Validator) getActionPrincipalTypes(actionScope ast.IsActionScopeNode) [
 // getActionResourceTypes extracts resource types from action scope.
 func (v *Validator) getActionResourceTypes(actionScope ast.IsActionScopeNode) []types.EntityType {
 	switch a := actionScope.(type) {
+	case ast.ScopeTypeAll:
+		// For unscoped action (all actions), return union of all action's resource types.
+		// This enables type checking even when no specific action is constrained.
+		return v.allActionResourceTypes()
 	case ast.ScopeTypeEq:
 		if info, ok := v.actionTypes[a.Entity]; ok {
 			return info.ResourceTypes
@@ -115,6 +130,28 @@ func (v *Validator) unionActionResourceTypes(actionUIDs []types.EntityUID) []typ
 			for _, rt := range info.ResourceTypes {
 				typeSet[rt] = true
 			}
+		}
+	}
+	return mapKeysToSlice(typeSet)
+}
+
+// allActionPrincipalTypes returns the union of principal types from all actions.
+func (v *Validator) allActionPrincipalTypes() []types.EntityType {
+	typeSet := make(map[types.EntityType]bool)
+	for _, info := range v.actionTypes {
+		for _, pt := range info.PrincipalTypes {
+			typeSet[pt] = true
+		}
+	}
+	return mapKeysToSlice(typeSet)
+}
+
+// allActionResourceTypes returns the union of resource types from all actions.
+func (v *Validator) allActionResourceTypes() []types.EntityType {
+	typeSet := make(map[types.EntityType]bool)
+	for _, info := range v.actionTypes {
+		for _, rt := range info.ResourceTypes {
+			typeSet[rt] = true
 		}
 	}
 	return mapKeysToSlice(typeSet)
@@ -366,9 +403,20 @@ func (ctx *typeContext) typecheckEquality(node ast.IsNode) CedarType {
 		left, right = n.Left, n.Right
 	}
 
-	ctx.typecheck(left)
-	ctx.typecheck(right)
-	// Equality is allowed between any types (will evaluate to false if incompatible)
+	leftType := ctx.typecheck(left)
+	rightType := ctx.typecheck(right)
+
+	// Cedar requires that equality operands have compatible types.
+	// This is a type error, not a runtime behavior (which would return false).
+	// Note: typesAreComparable handles unknown types by allowing comparisons,
+	// matching Lean's lenient behavior with unresolved types.
+	if !isTypeUnknown(leftType) && !isTypeUnknown(rightType) {
+		if !ctx.typesAreComparable(leftType, rightType) {
+			ctx.errors = append(ctx.errors,
+				fmt.Sprintf("type mismatch in equality: cannot compare %s with %s", leftType, rightType))
+		}
+	}
+
 	return BoolType{}
 }
 
@@ -465,19 +513,38 @@ func (ctx *typeContext) typecheckAccess(n ast.NodeTypeAccess) CedarType {
 	switch t := baseType.(type) {
 	case EntityType:
 		// Look up the attribute in the entity type
-		if t.Name != "" {
-			if info, ok := ctx.v.entityTypes[t.Name]; ok {
-				if attr, ok := info.Attributes[attrName]; ok {
-					return attr.Type
+		// Note: t.Name could be empty string (which is a specific, if unusual, entity type name)
+		// or it could be a type name that isn't defined in the schema (unknown entity type)
+		if info, ok := ctx.v.entityTypes[t.Name]; ok {
+			if attr, ok := info.Attributes[attrName]; ok {
+				// Check if attribute is optional (required: false)
+				// Accessing an optional attribute without has() check is a type error
+				if !attr.Required {
+					ctx.errors = append(ctx.errors,
+						fmt.Sprintf("attribute '%s' on entity type %s is optional; use `has` to check for its presence first", attrName, t.Name))
 				}
-				ctx.errors = append(ctx.errors,
-					fmt.Sprintf("entity type %s does not have attribute '%s'", t.Name, attrName))
+				// Return the attribute type. If it's UnspecifiedType (no type in schema),
+				// this will be caught at the condition level if used as a boolean,
+				// but allowed for comparisons (which return Bool).
+				return attr.Type
 			}
+			ctx.errors = append(ctx.errors,
+				fmt.Sprintf("entity type %s does not have attribute '%s'", t.Name, attrName))
+			return UnknownType{}
 		}
+		// Entity type is not defined in the schema - this is a validation error
+		// because we cannot verify the attribute access is valid
+		ctx.errors = append(ctx.errors,
+			fmt.Sprintf("cannot access attribute '%s' on unknown entity type %s", attrName, t.Name))
 		return UnknownType{}
 
 	case RecordType:
 		if attr, ok := t.Attributes[attrName]; ok {
+			// Check if attribute is optional
+			if !attr.Required {
+				ctx.errors = append(ctx.errors,
+					fmt.Sprintf("attribute '%s' is optional; use `has` to check for its presence first", attrName))
+			}
 			return attr.Type
 		}
 		// Record type might allow any attribute if schema is incomplete
@@ -620,49 +687,4 @@ func (ctx *typeContext) expectArgs(funcName string, actual []CedarType, expected
 				fmt.Sprintf("%s() argument %d: expected %s, got %s", funcName, i+1, exp, act))
 		}
 	}
-}
-
-// Helper functions for type checking
-func isTypeBoolean(t CedarType) bool {
-	_, ok := t.(BoolType)
-	return ok
-}
-
-func isTypeLong(t CedarType) bool {
-	_, ok := t.(LongType)
-	return ok
-}
-
-func isTypeString(t CedarType) bool {
-	_, ok := t.(StringType)
-	return ok
-}
-
-func isTypeEntity(t CedarType) bool {
-	_, ok := t.(EntityType)
-	return ok
-}
-
-func isTypeSet(t CedarType) bool {
-	_, ok := t.(SetType)
-	return ok
-}
-
-func isTypeUnknown(t CedarType) bool {
-	_, ok := t.(UnknownType)
-	return ok
-}
-
-// unifyTypes returns a type that represents both types
-func unifyTypes(t1, t2 CedarType) CedarType {
-	if isTypeUnknown(t1) {
-		return t2
-	}
-	if isTypeUnknown(t2) {
-		return t1
-	}
-	if TypesMatch(t1, t2) {
-		return t1
-	}
-	return UnknownType{}
 }

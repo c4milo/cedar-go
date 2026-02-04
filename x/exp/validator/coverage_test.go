@@ -22,7 +22,6 @@ import (
 	"github.com/cedar-policy/cedar-go/x/exp/schema"
 )
 
-
 // TestFlatSchemaJSON tests parsing of flat schema format (entityTypes/actions at top level)
 func TestFlatSchemaJSON(t *testing.T) {
 	tests := []struct {
