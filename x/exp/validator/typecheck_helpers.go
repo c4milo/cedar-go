@@ -114,12 +114,24 @@ func (ctx *typeContext) typeCategory(t CedarType) typeCat {
 	case StringType:
 		return catString
 	case EntityType:
-		// Check if this entity type is actually defined in the schema.
-		// If not, treat it as unknown for comparison purposes (lenient mode).
-		if _, ok := ctx.v.entityTypes[ct.Name]; !ok {
-			return catUnknown
+		// Action entity types are special - they're in actionTypes, not entityTypes.
+		// They are still entities and should be in the entity category.
+		if ctx.v.isActionEntityType(ct.Name) {
+			return catEntity
 		}
-		return catEntity
+		// Empty entity type (used for variables with unknown type) is still an entity.
+		// This ensures that principal/resource/action variables are always entities.
+		if ct.Name == "" {
+			return catEntity
+		}
+		// For entity types that look like real entity types (defined in schema),
+		// categorize as catEntity. This ensures comparing real entities to strings is an error.
+		if _, ok := ctx.v.entityTypes[ct.Name]; ok {
+			return catEntity
+		}
+		// Unknown entity types (including custom types from attributes) are treated
+		// as unknown to allow lenient comparison with any type.
+		return catUnknown
 	case AnyEntityType:
 		return catEntity
 	case SetType:
