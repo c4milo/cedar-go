@@ -199,6 +199,10 @@ func convertJSONAppliesTo(appliesTo *JSONAppliesTo) *AppliesTo {
 }
 
 func convertJSONType(js *JSONType) Type {
+	if js == nil {
+		// Nil type - return empty record as a safe default
+		return &RecordType{Attributes: []*Attribute{}}
+	}
 	switch js.Type {
 	case "Boolean":
 		return &Path{Parts: []*Ident{{Value: "Boolean"}}}
@@ -207,8 +211,13 @@ func convertJSONType(js *JSONType) Type {
 	case "String":
 		return &Path{Parts: []*Ident{{Value: "String"}}}
 	case "Set":
+		elem := js.Element
+		if elem == nil {
+			// Set without element type - default to empty record element
+			elem = &JSONType{Type: "Record"}
+		}
 		return &SetType{
-			Element: convertJSONType(js.Element),
+			Element: convertJSONType(elem),
 		}
 	case "Record":
 		return convertJSONRecordType(js)
@@ -219,8 +228,14 @@ func convertJSONType(js *JSONType) Type {
 			idents[i] = &Ident{Value: part}
 		}
 		return &Path{Parts: idents}
+	case "":
+		// Empty type - return empty record as a safe default
+		// This handles malformed schemas with empty shape objects
+		return &RecordType{Attributes: []*Attribute{}}
 	default:
-		panic(fmt.Sprintf("unknown JSON type: %s", js.Type))
+		// Unknown type - return empty record instead of panicking
+		// This makes the converter more robust to malformed input
+		return &RecordType{Attributes: []*Attribute{}}
 	}
 }
 

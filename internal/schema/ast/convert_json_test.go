@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -60,7 +59,7 @@ func TestConvertJsonToHumanEmpty(t *testing.T) {
 }
 
 func TestConvertJsonToHumanInvalidType(t *testing.T) {
-	// Test with an invalid JSON type
+	// Test with an invalid JSON type - should handle gracefully without panic
 	invalidSchema := ast.JSONSchema{
 		"": {
 			EntityTypes: map[string]*ast.JSONEntity{
@@ -73,6 +72,7 @@ func TestConvertJsonToHumanInvalidType(t *testing.T) {
 		},
 	}
 
+	// Should not panic - invalid types are converted to empty records
 	var panicMsg string
 	func() {
 		defer func() {
@@ -83,12 +83,7 @@ func TestConvertJsonToHumanInvalidType(t *testing.T) {
 		ast.ConvertJSON2Human(invalidSchema)
 	}()
 
-	if panicMsg == "" {
-		t.Fatal("expected panic, got none")
-	}
-
-	expected := "unknown JSON type: InvalidType"
-	if !strings.Contains(panicMsg, expected) {
-		t.Errorf("expected panic message to contain %q, got %q", expected, panicMsg)
+	if panicMsg != "" {
+		t.Errorf("expected no panic, got: %s", panicMsg)
 	}
 }
