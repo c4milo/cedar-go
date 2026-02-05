@@ -260,7 +260,10 @@ func TestTypeInListWithNonEmptyList(t *testing.T) {
 }
 
 func TestUnifyTypes(t *testing.T) {
-
+	// Test that type unification works correctly for if-then-else with compatible types.
+	// Per Lean spec, `if true then 1 else 2 > 0` would parse as `if true then 1 else (2 > 0)`
+	// which has incompatible branch types (Long and Bool) - this is a lubErr.
+	// Here we use parentheses to ensure compatible types in branches.
 	schemaJSON := `{
 		"": {
 			"entityTypes": {
@@ -284,7 +287,8 @@ func TestUnifyTypes(t *testing.T) {
 
 	policies := cedar.NewPolicySet()
 	var policy cedar.Policy
-	if err := policy.UnmarshalCedar([]byte(`permit(principal, action, resource) when { if true then 1 else 2 > 0 };`)); err != nil {
+	// Use parentheses to ensure both branches are Long
+	if err := policy.UnmarshalCedar([]byte(`permit(principal, action, resource) when { (if true then 1 else 2) > 0 };`)); err != nil {
 		t.Fatalf("Failed to parse policy: %v", err)
 	}
 	policies.Add("test", &policy)
@@ -386,7 +390,7 @@ func TestSetTypeInference(t *testing.T) {
 		{
 			name:        "empty set literal",
 			policy:      `permit(principal, action, resource) when { [].isEmpty() };`,
-			expectValid: true,
+			expectValid: false, // emptySetErr: cannot infer element type of empty set literal (per Lean spec)
 		},
 		{
 			name:        "set literal with elements",
@@ -514,6 +518,74 @@ func TestNestedRecordTypes(t *testing.T) {
 	if _, ok := recordType.Attributes["zip"]; !ok {
 		t.Error("Expected address to have 'zip' attribute")
 	}
+}
+
+// TestTypePredicateMethods tests all type predicate methods (IsBoolean, IsLong, etc.)
+func TestTypePredicateMethods(t *testing.T) {
+	tests := []struct {
+		name      string
+		typ       CedarType
+		isBoolean bool
+		isLong    bool
+		isString  bool
+		isEntity  bool
+		isSet     bool
+		isRecord  bool
+		isUnknown bool
+	}{
+		{"BoolType", BoolType{}, true, false, false, false, false, false, false},
+		{"LongType", LongType{}, false, true, false, false, false, false, false},
+		{"StringType", StringType{}, false, false, true, false, false, false, false},
+		{"EntityType", EntityType{Name: "User"}, false, false, false, true, false, false, false},
+		{"SetType", SetType{Element: StringType{}}, false, false, false, false, true, false, false},
+		{"RecordType", RecordType{}, false, false, false, false, false, true, false},
+		{"ExtensionType", ExtensionType{Name: "decimal"}, false, false, false, false, false, false, false},
+		{"AnyEntityType", AnyEntityType{}, false, false, false, true, false, false, false},
+		{"UnknownType", UnknownType{}, false, false, false, false, false, false, true},
+		{"UnspecifiedType", UnspecifiedType{}, false, false, false, false, false, false, true}, // Treated as unknown
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			checkTypePredicates(t, tc.name, tc.typ, tc.isBoolean, tc.isLong, tc.isString, tc.isEntity, tc.isSet, tc.isRecord, tc.isUnknown)
+		})
+	}
+}
+
+func checkTypePredicates(t *testing.T, name string, typ CedarType, isBoolean, isLong, isString, isEntity, isSet, isRecord, isUnknown bool) {
+	t.Helper()
+	if got := typ.IsBoolean(); got != isBoolean {
+		t.Errorf("%s.IsBoolean() = %v, want %v", name, got, isBoolean)
+	}
+	if got := typ.IsLong(); got != isLong {
+		t.Errorf("%s.IsLong() = %v, want %v", name, got, isLong)
+	}
+	if got := typ.IsString(); got != isString {
+		t.Errorf("%s.IsString() = %v, want %v", name, got, isString)
+	}
+	if got := typ.IsEntity(); got != isEntity {
+		t.Errorf("%s.IsEntity() = %v, want %v", name, got, isEntity)
+	}
+	if got := typ.IsSet(); got != isSet {
+		t.Errorf("%s.IsSet() = %v, want %v", name, got, isSet)
+	}
+	if got := typ.IsRecord(); got != isRecord {
+		t.Errorf("%s.IsRecord() = %v, want %v", name, got, isRecord)
+	}
+	if got := typ.IsUnknown(); got != isUnknown {
+		t.Errorf("%s.IsUnknown() = %v, want %v", name, got, isUnknown)
+	}
+}
+
+// TestUnspecifiedTypeString tests the String() method for UnspecifiedType
+func TestUnspecifiedTypeString(t *testing.T) {
+	ut := UnspecifiedType{}
+	if got := ut.String(); got != "Unspecified" {
+		t.Errorf("UnspecifiedType.String() = %q, want %q", got, "Unspecified")
+	}
+
+	// Also verify it implements isCedarType
+	ut.isCedarType()
 }
 
 // TestInferTypeFromValue tests type inference from Cedar values.
