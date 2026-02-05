@@ -132,13 +132,13 @@ func TestSchemaWithActionContext(t *testing.T) {
 				"view": {
 					"appliesTo": {
 						"principalTypes": ["User"],
-						"resourceTypes": ["Document"]
-					},
-					"context": {
-						"type": "Record",
-						"attributes": {
-							"ip": {"type": "String"},
-							"authenticated": {"type": "Boolean"}
+						"resourceTypes": ["Document"],
+						"context": {
+							"type": "Record",
+							"attributes": {
+								"ip": {"type": "String", "required": true},
+								"authenticated": {"type": "Boolean", "required": true}
+							}
 						}
 					}
 				}

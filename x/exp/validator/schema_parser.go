@@ -37,6 +37,7 @@ type jsonEntityType struct {
 type jsonAction struct {
 	AppliesTo *jsonAppliesTo  `json:"appliesTo,omitempty"`
 	MemberOf  []jsonActionRef `json:"memberOf,omitempty"`
+	Context   *jsonType       `json:"context,omitempty"` // Context can be at action level or inside appliesTo
 }
 
 type jsonAppliesTo struct {
@@ -197,6 +198,16 @@ func (v *Validator) parseAction(nsName, name string, act *jsonAction) (*ActionTy
 
 	if err := v.parseAppliesTo(info, nsName, name, act.AppliesTo); err != nil {
 		return nil, err
+	}
+
+	// Context can be defined at the action level or inside appliesTo.
+	// Action-level context takes precedence if both are specified.
+	if act.Context != nil {
+		ctx, err := v.parseRecordTypeWithOpen(act.Context)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse action %s context: %w", name, err)
+		}
+		info.Context = ctx
 	}
 
 	v.parseActionMemberOf(info, nsName, act.MemberOf)
