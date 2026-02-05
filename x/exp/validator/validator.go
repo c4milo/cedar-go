@@ -289,6 +289,11 @@ func (v *Validator) validatePolicy(id cedar.PolicyID, policy *cedar.Policy) []Po
 		errs = append(errs, PolicyError{PolicyID: id, Message: msg})
 	}
 
+	// Check for impossible conditions (e.g., when { false } or unless { true })
+	if v.hasImpossibleCondition(policyAST) {
+		errs = append(errs, PolicyError{PolicyID: id, Message: "impossiblePolicy"})
+	}
+
 	// Full type-checking of conditions
 	typeErrs := v.typecheckPolicy(policyAST)
 	for _, msg := range typeErrs {
@@ -296,6 +301,110 @@ func (v *Validator) validatePolicy(id cedar.PolicyID, policy *cedar.Policy) []Po
 	}
 
 	return errs
+}
+
+// hasImpossibleCondition checks if a policy has conditions that make it
+// semantically impossible to satisfy. This includes:
+// - when { false } - a when clause that is always false
+// - unless { true } - an unless clause that is always true
+// This also handles constant expressions like `true || !true` which evaluate to `true`.
+func (v *Validator) hasImpossibleCondition(policy *ast.Policy) bool {
+	return slices.ContainsFunc(policy.Conditions, v.isConditionImpossible)
+}
+
+// isConditionImpossible checks if a single condition is semantically impossible.
+func (v *Validator) isConditionImpossible(cond ast.ConditionType) bool {
+	boolVal, isConst := v.evaluateConstantBool(cond.Body)
+	if !isConst {
+		return false
+	}
+	// when { false } -> impossible
+	// unless { true } -> impossible
+	return (cond.Condition == ast.ConditionWhen && !boolVal) ||
+		(cond.Condition == ast.ConditionUnless && boolVal)
+}
+
+// evaluateConstantBool attempts to evaluate an AST node as a constant boolean expression.
+// Returns the boolean value and true if the expression is a constant, or false, false otherwise.
+func (v *Validator) evaluateConstantBool(node ast.IsNode) (bool, bool) {
+	switch n := node.(type) {
+	case ast.NodeValue:
+		return v.evaluateConstantValue(n)
+	case ast.NodeTypeNot:
+		return v.evaluateConstantNot(n)
+	case ast.NodeTypeAnd:
+		return v.evaluateConstantAnd(n)
+	case ast.NodeTypeOr:
+		return v.evaluateConstantOr(n)
+	case ast.NodeTypeIfThenElse:
+		return v.evaluateConstantIfThenElse(n)
+	default:
+		return false, false
+	}
+}
+
+// evaluateConstantValue extracts a boolean from a literal value node.
+func (v *Validator) evaluateConstantValue(n ast.NodeValue) (bool, bool) {
+	if boolVal, ok := n.Value.(types.Boolean); ok {
+		return bool(boolVal), true
+	}
+	return false, false
+}
+
+// evaluateConstantNot evaluates a negation of a constant boolean.
+func (v *Validator) evaluateConstantNot(n ast.NodeTypeNot) (bool, bool) {
+	if val, isConst := v.evaluateConstantBool(n.Arg); isConst {
+		return !val, true
+	}
+	return false, false
+}
+
+// evaluateConstantAnd evaluates an AND operation with short-circuit semantics.
+func (v *Validator) evaluateConstantAnd(n ast.NodeTypeAnd) (bool, bool) {
+	leftVal, leftConst := v.evaluateConstantBool(n.Left)
+	rightVal, rightConst := v.evaluateConstantBool(n.Right)
+
+	if leftConst && rightConst {
+		return leftVal && rightVal, true
+	}
+	// Short-circuit: false && anything = false
+	if leftConst && !leftVal {
+		return false, true
+	}
+	if rightConst && !rightVal {
+		return false, true
+	}
+	return false, false
+}
+
+// evaluateConstantOr evaluates an OR operation with short-circuit semantics.
+func (v *Validator) evaluateConstantOr(n ast.NodeTypeOr) (bool, bool) {
+	leftVal, leftConst := v.evaluateConstantBool(n.Left)
+	rightVal, rightConst := v.evaluateConstantBool(n.Right)
+
+	if leftConst && rightConst {
+		return leftVal || rightVal, true
+	}
+	// Short-circuit: true || anything = true
+	if leftConst && leftVal {
+		return true, true
+	}
+	if rightConst && rightVal {
+		return true, true
+	}
+	return false, false
+}
+
+// evaluateConstantIfThenElse evaluates a conditional with constant condition.
+func (v *Validator) evaluateConstantIfThenElse(n ast.NodeTypeIfThenElse) (bool, bool) {
+	condVal, condConst := v.evaluateConstantBool(n.If)
+	if !condConst {
+		return false, false
+	}
+	if condVal {
+		return v.evaluateConstantBool(n.Then)
+	}
+	return v.evaluateConstantBool(n.Else)
 }
 
 // isSchemaEmpty returns true if the schema has no valid environments.
@@ -505,12 +614,20 @@ func (v *Validator) inferRecordType(r types.Record) CedarType {
 	return RecordType{Attributes: attrs}
 }
 
-// isActionEntityType checks if an entity type is an action type.
-// This handles both "Action" and namespaced "Namespace::Action" types.
+// isActionEntityType checks if an entity type looks like an action entity type.
+// This is based on the type name pattern: "Action" or "Namespace::Action".
+// This is used for scope validation where we allow action types.
 func (v *Validator) isActionEntityType(t types.EntityType) bool {
 	s := string(t)
 	// Check for exact "Action" or ends with "::Action"
 	return s == "Action" || strings.HasSuffix(s, "::Action")
+}
+
+// isKnownActionEntity checks if a specific entity UID is a defined action in the schema.
+// This is stricter than isActionEntityType - it requires the exact action to be defined.
+func (v *Validator) isKnownActionEntity(uid types.EntityUID) bool {
+	_, exists := v.actionTypes[uid]
+	return exists
 }
 
 // typeInList checks if a type is in a list of types.
@@ -565,31 +682,48 @@ func (v *Validator) checkEntityTypeStrict(t types.EntityType, scopeName string, 
 func (v *Validator) validateActionScope(scope ast.IsScopeNode, errs *[]string) {
 	switch s := scope.(type) {
 	case ast.ScopeTypeEq:
-		info, ok := v.actionTypes[s.Entity]
-		if !ok {
-			*errs = append(*errs, fmt.Sprintf("action scope references unknown action: %s", s.Entity))
-		} else if !v.actionHasValidAppliesTo(info) {
-			// An action without appliesTo (no principalTypes AND no resourceTypes)
-			// makes the policy impossible - Lean rejects with "unknownEntity"
-			*errs = append(*errs, fmt.Sprintf("impossiblePolicy: action %s has no valid appliesTo configuration", s.Entity))
-		}
+		v.validateActionScopeEq(s, errs)
 	case ast.ScopeTypeIn:
 		// Action 'in' might reference an action group, which may not be explicitly defined.
 		// This is allowed in Cedar.
 	case ast.ScopeTypeInSet:
-		allInvalid := true
-		for _, entity := range s.Entities {
-			info, ok := v.actionTypes[entity]
-			if !ok {
-				*errs = append(*errs, fmt.Sprintf("action scope references unknown action: %s", entity))
-			} else if v.actionHasValidAppliesTo(info) {
-				allInvalid = false
-			}
+		v.validateActionScopeInSet(s, errs)
+	}
+}
+
+// validateActionScopeEq validates an action == EntityUID scope.
+func (v *Validator) validateActionScopeEq(s ast.ScopeTypeEq, errs *[]string) {
+	info, ok := v.actionTypes[s.Entity]
+	if !ok {
+		*errs = append(*errs, fmt.Sprintf("action scope references unknown action: %s", s.Entity))
+		return
+	}
+	if !v.actionHasValidAppliesTo(info) {
+		// An action without appliesTo (no principalTypes AND no resourceTypes)
+		// makes the policy impossible - Lean rejects with "unknownEntity"
+		*errs = append(*errs, fmt.Sprintf("impossiblePolicy: action %s has no valid appliesTo configuration", s.Entity))
+	}
+}
+
+// validateActionScopeInSet validates an action in [EntityUID, ...] scope.
+func (v *Validator) validateActionScopeInSet(s ast.ScopeTypeInSet, errs *[]string) {
+	if len(s.Entities) == 0 {
+		*errs = append(*errs, "impossiblePolicy: action in empty set can never match")
+		return
+	}
+
+	allInvalid := true
+	for _, entity := range s.Entities {
+		info, ok := v.actionTypes[entity]
+		if !ok {
+			*errs = append(*errs, fmt.Sprintf("action scope references unknown action: %s", entity))
+		} else if v.actionHasValidAppliesTo(info) {
+			allInvalid = false
 		}
-		// If all actions in the set have invalid appliesTo, the policy is impossible
-		if allInvalid && len(s.Entities) > 0 {
-			*errs = append(*errs, "impossiblePolicy: no action in set has valid appliesTo configuration")
-		}
+	}
+
+	if allInvalid {
+		*errs = append(*errs, "impossiblePolicy: no action in set has valid appliesTo configuration")
 	}
 }
 
@@ -650,13 +784,42 @@ func (v *Validator) validateActionAppliesTo(policyAST *ast.Policy, errs *[]strin
 		return
 	}
 
-	// Collect the union of all allowed principal/resource types from all applicable actions.
-	// For a policy to be possible, the scope must be compatible with the combined constraints.
+	if v.hasValidActionMatch(policyAST, actionInfos) {
+		return
+	}
+
+	v.reportActionAppliesToError(policyAST, actionInfos, errs)
+}
+
+// hasValidActionMatch checks if any action supports the policy's principal and resource constraints.
+func (v *Validator) hasValidActionMatch(policyAST *ast.Policy, actionInfos []*ActionTypeInfo) bool {
+	for _, info := range actionInfos {
+		principalOK := v.isScopeTypeSatisfiable(policyAST.Principal, info.PrincipalTypes, "principal")
+		resourceOK := v.isScopeTypeSatisfiable(policyAST.Resource, info.ResourceTypes, "resource")
+		if principalOK && resourceOK {
+			return true
+		}
+	}
+	return false
+}
+
+// reportActionAppliesToError reports errors when no action supports the policy constraints.
+func (v *Validator) reportActionAppliesToError(policyAST *ast.Policy, actionInfos []*ActionTypeInfo, errs *[]string) {
 	principalTypes := v.unionPrincipalTypes(actionInfos)
 	resourceTypes := v.unionResourceTypes(actionInfos)
 
-	v.checkScopeTypeAllowed(policyAST.Principal, principalTypes, "principal", errs)
-	v.checkScopeTypeAllowed(policyAST.Resource, resourceTypes, "resource", errs)
+	principalOK := v.isScopeTypeSatisfiable(policyAST.Principal, principalTypes, "principal")
+	resourceOK := v.isScopeTypeSatisfiable(policyAST.Resource, resourceTypes, "resource")
+
+	if !principalOK {
+		v.checkScopeTypeAllowed(policyAST.Principal, principalTypes, "principal", errs)
+	}
+	if !resourceOK {
+		v.checkScopeTypeAllowed(policyAST.Resource, resourceTypes, "resource", errs)
+	}
+	if principalOK && resourceOK {
+		*errs = append(*errs, "impossiblePolicy: no action supports the combination of principal and resource types in this policy")
+	}
 }
 
 // getActionInfos extracts ActionTypeInfo(s) from an action scope.
@@ -718,6 +881,31 @@ func (v *Validator) unionResourceTypes(infos []*ActionTypeInfo) []types.EntityTy
 	return result
 }
 
+// isScopeTypeSatisfiable checks if a scope constraint is satisfiable with the given allowed types.
+// Returns true if the constraint can be satisfied, false otherwise.
+func (v *Validator) isScopeTypeSatisfiable(scope ast.IsScopeNode, allowed []types.EntityType, scopeName string) bool {
+	if len(allowed) == 0 {
+		return false
+	}
+
+	switch s := scope.(type) {
+	case ast.ScopeTypeAll:
+		return true
+	case ast.ScopeTypeEq:
+		if v.isActionEntityType(s.Entity.Type) {
+			return true
+		}
+		return v.typeInList(s.Entity.Type, allowed)
+	case ast.ScopeTypeIs:
+		return v.typeInList(s.Type, allowed)
+	case ast.ScopeTypeIsIn:
+		return v.typeInList(s.Type, allowed)
+	case ast.ScopeTypeIn:
+		return v.typeInList(s.Entity.Type, allowed)
+	}
+	return true // Unknown scope type, assume satisfiable
+}
+
 // checkScopeTypeAllowed validates that a scope's entity type is in the allowed list.
 func (v *Validator) checkScopeTypeAllowed(scope ast.IsScopeNode, allowed []types.EntityType, scopeName string, errs *[]string) {
 	if len(allowed) == 0 {
@@ -726,33 +914,94 @@ func (v *Validator) checkScopeTypeAllowed(scope ast.IsScopeNode, allowed []types
 
 	switch s := scope.(type) {
 	case ast.ScopeTypeEq:
-		// Action types (Action::...) are special and always allowed - they refer to actions, not principals/resources
-		if v.isActionEntityType(s.Entity.Type) {
-			return
-		}
-		if !v.typeInList(s.Entity.Type, allowed) {
-			*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s type %s is not allowed for this action (allowed: %v)", scopeName, s.Entity.Type, allowed))
-		}
+		v.checkScopeTypeEq(s, allowed, scopeName, errs)
 	case ast.ScopeTypeIs:
-		if !v.typeInList(s.Type, allowed) {
-			*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s type %s is not allowed for this action (allowed: %v)", scopeName, s.Type, allowed))
-		}
+		v.checkScopeTypeIs(s.Type, allowed, scopeName, errs)
 	case ast.ScopeTypeIsIn:
-		if !v.typeInList(s.Type, allowed) {
-			*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s type %s is not allowed for this action (allowed: %v)", scopeName, s.Type, allowed))
-		}
+		v.checkScopeTypeIs(s.Type, allowed, scopeName, errs)
 	case ast.ScopeTypeIn:
-		// For "resource in Entity::...", check if the entity type is in allowed types.
-		// Lean's impossiblePolicy check requires the scope's entity type to be directly
-		// in the allowed list. It does NOT consider memberOfTypes transitive relationships
-		// for this check (unlike Cedar Rust which does consider them).
-		//
-		// Example: If action has resourceTypes=["Photo"] and policy says "resource in Album::...",
-		// Lean considers this impossiblePolicy because Album is not in ["Photo"], even though
-		// Photo entities can be members of Albums (via Photo.memberOfTypes = ["Album"]).
-		entityType := s.Entity.Type
-		if !v.typeInList(entityType, allowed) {
-			*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s in %s::%s is not satisfiable (allowed types: %v)", scopeName, entityType, s.Entity.ID, allowed))
+		v.checkScopeTypeIn(s, allowed, scopeName, errs)
+	}
+}
+
+// checkScopeTypeEq validates that an == scope's entity type is allowed.
+func (v *Validator) checkScopeTypeEq(s ast.ScopeTypeEq, allowed []types.EntityType, scopeName string, errs *[]string) {
+	// Action types (Action::...) are special and always allowed
+	if v.isActionEntityType(s.Entity.Type) {
+		return
+	}
+	if !v.typeInList(s.Entity.Type, allowed) {
+		*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s type %s is not allowed for this action (allowed: %v)", scopeName, s.Entity.Type, allowed))
+	}
+}
+
+// checkScopeTypeIs validates that an is/is-in scope's type is allowed.
+func (v *Validator) checkScopeTypeIs(entityType types.EntityType, allowed []types.EntityType, scopeName string, errs *[]string) {
+	if !v.typeInList(entityType, allowed) {
+		*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s type %s is not allowed for this action (allowed: %v)", scopeName, entityType, allowed))
+	}
+}
+
+// checkScopeTypeIn validates that an in scope's entity type is allowed and satisfiable.
+func (v *Validator) checkScopeTypeIn(s ast.ScopeTypeIn, allowed []types.EntityType, scopeName string, errs *[]string) {
+	// For "principal/resource in Entity::...", we need to check two things:
+	//
+	// 1. The entity type in the "in" clause must be in the allowed types.
+	//    Lean's impossiblePolicy check requires the scope's entity type to be directly
+	//    in the allowed list.
+	//
+	// 2. At least one allowed type must be able to be a descendant of the entity type.
+	//    This requires checking memberOfTypes.
+	entityType := s.Entity.Type
+
+	if !v.typeInList(entityType, allowed) {
+		*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s in %s::%s is not satisfiable (allowed types: %v)", scopeName, entityType, s.Entity.ID, allowed))
+		return
+	}
+
+	if !v.canAnyTypeBeDescendantOf(allowed, entityType) {
+		*errs = append(*errs, fmt.Sprintf("impossiblePolicy: %s in %s::%s is not satisfiable (no allowed type can be in %s)", scopeName, entityType, s.Entity.ID, entityType))
+	}
+}
+
+// canAnyTypeBeDescendantOf checks if any type in the list can be a descendant
+// of the target type based on memberOfTypes relationships.
+// A type T can be a descendant of target if T.MemberOfTypes includes target
+// (directly or transitively through the memberOf chain).
+func (v *Validator) canAnyTypeBeDescendantOf(typeList []types.EntityType, target types.EntityType) bool {
+	for _, t := range typeList {
+		if v.canBeDescendantOf(t, target, make(map[types.EntityType]bool)) {
+			return true
 		}
 	}
+	return false
+}
+
+// canBeDescendantOf checks if sourceType can be a descendant of targetType.
+// This checks if sourceType's memberOfTypes (transitively) includes targetType.
+func (v *Validator) canBeDescendantOf(sourceType, targetType types.EntityType, visited map[types.EntityType]bool) bool {
+	// Avoid infinite loops in case of circular memberOfTypes
+	if visited[sourceType] {
+		return false
+	}
+	visited[sourceType] = true
+
+	info := v.entityTypes[sourceType]
+	if info == nil {
+		return false
+	}
+
+	// Check if sourceType can directly be a member of targetType
+	for _, memberOf := range info.MemberOfTypes {
+		if memberOf == targetType {
+			return true
+		}
+		// Recursively check if memberOf can be a descendant of target
+		// This handles chains like: Type3 -> Type2 -> Type1 -> Type0
+		if v.canBeDescendantOf(memberOf, targetType, visited) {
+			return true
+		}
+	}
+
+	return false
 }

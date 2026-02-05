@@ -15,6 +15,7 @@
 package validator
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/cedar-policy/cedar-go"
@@ -713,8 +714,13 @@ func TestTypecheckTypeErrors(t *testing.T) {
 		},
 		{
 			name:        "conditional valid",
-			policy:      `permit(principal, action, resource) when { if true then 1 else 2 > 0 };`,
+			policy:      `permit(principal, action, resource) when { (if true then 1 else 2) > 0 };`,
 			expectValid: true,
+		},
+		{
+			name:        "conditional incompatible branches",
+			policy:      `permit(principal, action, resource) when { if true then 1 else (2 > 0) };`,
+			expectValid: false, // lubErr: branches have incompatible types Long and Bool
 		},
 	}
 
@@ -750,12 +756,12 @@ func TestTypecheckVariableContext(t *testing.T) {
 				"view": {
 					"appliesTo": {
 						"principalTypes": ["User"],
-						"resourceTypes": ["Document"]
-					},
-					"context": {
-						"type": "Record",
-						"attributes": {
-							"ip": {"type": "String"}
+						"resourceTypes": ["Document"],
+						"context": {
+							"type": "Record",
+							"attributes": {
+								"ip": {"type": "String", "required": true}
+							}
 						}
 					}
 				}
@@ -1269,6 +1275,8 @@ func TestTypecheckEqualityOperators(t *testing.T) {
 }
 
 func TestTypecheckSetLiteralEmpty(t *testing.T) {
+	// Per Lean spec, empty set literals are a type error (emptySetErr)
+	// because the element type cannot be inferred.
 	schemaJSON := `{
 		"": {
 			"entityTypes": {
@@ -1298,8 +1306,19 @@ func TestTypecheckSetLiteralEmpty(t *testing.T) {
 	policies.Add("test", &policy)
 
 	result := ValidatePolicies(s, policies)
-	if !result.Valid {
-		t.Errorf("Expected valid, got errors: %v", result.Errors)
+	if result.Valid {
+		t.Errorf("Expected emptySetErr for empty set literal, but validation passed")
+	}
+	// Check that the error contains emptySetErr
+	found := false
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "emptySetErr") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected emptySetErr error, got: %v", result.Errors)
 	}
 }
 
@@ -1479,7 +1498,9 @@ func TestTypecheckUnknownVariableName(t *testing.T) {
 }
 
 func TestTypecheckContextWithoutActionConstraint(t *testing.T) {
-
+	// When action is unconstrained and actions have different contexts,
+	// accessing an attribute that doesn't exist in ALL actions' contexts
+	// should be an error. This matches Lean's behavior (attrNotFound).
 	schemaJSON := `{
 		"": {
 			"entityTypes": {
@@ -1490,12 +1511,12 @@ func TestTypecheckContextWithoutActionConstraint(t *testing.T) {
 				"view": {
 					"appliesTo": {
 						"principalTypes": ["User"],
-						"resourceTypes": ["Document"]
-					},
-					"context": {
-						"type": "Record",
-						"attributes": {
-							"ip": {"type": "String"}
+						"resourceTypes": ["Document"],
+						"context": {
+							"type": "Record",
+							"attributes": {
+								"ip": {"type": "String", "required": true}
+							}
 						}
 					}
 				},
@@ -1516,14 +1537,27 @@ func TestTypecheckContextWithoutActionConstraint(t *testing.T) {
 
 	policies := cedar.NewPolicySet()
 	var policy cedar.Policy
+	// Accessing context.anything when actions have conflicting contexts
+	// (view has ip, edit has no context) should produce an error
 	if err := policy.UnmarshalCedar([]byte(`permit(principal, action, resource) when { context.anything == "test" };`)); err != nil {
 		t.Fatalf("Failed to parse policy: %v", err)
 	}
 	policies.Add("test", &policy)
 
 	result := ValidatePolicies(s, policies)
-	if !result.Valid {
-		t.Errorf("Expected valid, got errors: %v", result.Errors)
+	if result.Valid {
+		t.Errorf("Expected error for accessing non-existent context attribute with conflicting action contexts")
+	}
+	// Should contain attrNotFound error
+	found := false
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "attrNotFound") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected attrNotFound error, got: %v", result.Errors)
 	}
 }
 
@@ -1539,15 +1573,16 @@ func TestTypecheckAccessOnRecordType(t *testing.T) {
 				"view": {
 					"appliesTo": {
 						"principalTypes": ["User"],
-						"resourceTypes": ["Document"]
-					},
-					"context": {
-						"type": "Record",
-						"attributes": {
-							"metadata": {
-								"type": "Record",
-								"attributes": {
-									"source": {"type": "String"}
+						"resourceTypes": ["Document"],
+						"context": {
+							"type": "Record",
+							"attributes": {
+								"metadata": {
+									"type": "Record",
+									"required": true,
+									"attributes": {
+										"source": {"type": "String", "required": true}
+									}
 								}
 							}
 						}
@@ -1576,7 +1611,8 @@ func TestTypecheckAccessOnRecordType(t *testing.T) {
 }
 
 func TestTypecheckRecordAccessUnknownAttribute(t *testing.T) {
-
+	// When action is constrained and context type is known, accessing an
+	// unknown attribute should produce an error (matching Lean behavior).
 	schemaJSON := `{
 		"": {
 			"entityTypes": {
@@ -1587,12 +1623,12 @@ func TestTypecheckRecordAccessUnknownAttribute(t *testing.T) {
 				"view": {
 					"appliesTo": {
 						"principalTypes": ["User"],
-						"resourceTypes": ["Document"]
-					},
-					"context": {
-						"type": "Record",
-						"attributes": {
-							"known": {"type": "String"}
+						"resourceTypes": ["Document"],
+						"context": {
+							"type": "Record",
+							"attributes": {
+								"known": {"type": "String"}
+							}
 						}
 					}
 				}
@@ -1613,8 +1649,19 @@ func TestTypecheckRecordAccessUnknownAttribute(t *testing.T) {
 	policies.Add("test", &policy)
 
 	result := ValidatePolicies(s, policies)
-	if !result.Valid {
-		t.Errorf("Expected valid, got errors: %v", result.Errors)
+	if result.Valid {
+		t.Error("Expected invalid (unknown attribute access should fail), but validation passed")
+	}
+	// Verify the error mentions the unknown attribute
+	found := false
+	for _, err := range result.Errors {
+		if strings.Contains(err.Message, "unknown_attr") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected error about 'unknown_attr', got: %v", result.Errors)
 	}
 }
 
@@ -1691,6 +1738,442 @@ func TestTypecheckVariables(t *testing.T) {
 			if !tc.expectValid && result.Valid {
 				t.Error("Expected invalid, but validation passed")
 			}
+		})
+	}
+}
+
+// TestImpossibleInRelationshipDetection tests the detection of impossible "in"
+// relationships in when/unless clauses based on memberOfTypes.
+func TestImpossibleInRelationshipDetection(t *testing.T) {
+	// Schema with a type hierarchy:
+	// - Type0 has no memberOfTypes
+	// - Type1 can be member of Type0
+	// - Type2 can be member of Type1
+	// - Type3 can be member of Type2 (chain: Type3 -> Type2 -> Type1 -> Type0)
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"Type0": {},
+				"Type1": { "memberOfTypes": ["Type0"] },
+				"Type2": { "memberOfTypes": ["Type1"] },
+				"Type3": { "memberOfTypes": ["Type2"] },
+				"Isolated": {}
+			},
+			"actions": {
+				"action0": {
+					"appliesTo": {
+						"principalTypes": ["Type2"],
+						"resourceTypes": ["Type1"]
+					}
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+		errorSubstr string
+	}{
+		{
+			// Type2 (principal type) has memberOfTypes: [Type1]
+			// Type1 has memberOfTypes: [Type0]
+			// So Type2 can be "in" Type0 transitively (Type2 -> Type1 -> Type0)
+			name:        "valid: principal in Type0 (transitive memberOf)",
+			policy:      `permit(principal, action == Action::"action0", resource) when { principal in Type0::"root" };`,
+			expectValid: true,
+		},
+		{
+			// Type2 can be directly in Type1 (its memberOfTypes)
+			name:        "valid: principal in Type1 (direct memberOf)",
+			policy:      `permit(principal, action == Action::"action0", resource) when { principal in Type1::"group" };`,
+			expectValid: true,
+		},
+		{
+			// Type2 can be "in" Type2 (reflexive - entity is in itself)
+			name:        "valid: principal in Type2 (same type - reflexive)",
+			policy:      `permit(principal, action == Action::"action0", resource) when { principal in Type2::"self" };`,
+			expectValid: true,
+		},
+		{
+			// Type2 CANNOT be "in" Type3 because Type2.memberOfTypes doesn't include Type3
+			// (Type3 is a descendant of Type2, not an ancestor)
+			name:        "impossible: principal in Type3 (Type3 is descendant, not ancestor)",
+			policy:      `permit(principal, action == Action::"action0", resource) when { principal in Type3::"child" };`,
+			expectValid: false,
+			errorSubstr: "impossiblePolicy",
+		},
+		{
+			// Type2 CANNOT be "in" Isolated because there's no memberOf relationship
+			name:        "impossible: principal in Isolated (no relationship)",
+			policy:      `permit(principal, action == Action::"action0", resource) when { principal in Isolated::"other" };`,
+			expectValid: false,
+			errorSubstr: "impossiblePolicy",
+		},
+		{
+			// Resource is Type1, which can be in Type0
+			name:        "valid: resource in Type0",
+			policy:      `permit(principal, action == Action::"action0", resource) when { resource in Type0::"root" };`,
+			expectValid: true,
+		},
+		{
+			// Resource is Type1, cannot be in Type2 (Type2 is descendant)
+			name:        "impossible: resource in Type2 (Type2 is descendant)",
+			policy:      `permit(principal, action == Action::"action0", resource) when { resource in Type2::"group" };`,
+			expectValid: false,
+			errorSubstr: "impossiblePolicy",
+		},
+		{
+			// Test "is ... in ..." construct
+			// "principal is Type2 in Type0::X" - Type2 can be in Type0, so valid
+			name:        "valid: principal is Type2 in Type0",
+			policy:      `permit(principal, action == Action::"action0", resource) when { principal is Type2 in Type0::"root" };`,
+			expectValid: true,
+		},
+		{
+			// "principal is Type2 in Type3::X" - Type2 cannot be in Type3, impossible
+			name:        "impossible: principal is Type2 in Type3",
+			policy:      `permit(principal, action == Action::"action0", resource) when { principal is Type2 in Type3::"child" };`,
+			expectValid: false,
+			errorSubstr: "impossiblePolicy",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := validatePolicyString(t, s, tc.policy)
+			checkImpossibleRelationshipResult(t, result, tc.expectValid, tc.errorSubstr)
+		})
+	}
+}
+
+func checkImpossibleRelationshipResult(t *testing.T, result PolicyValidationResult, expectValid bool, errorSubstr string) {
+	t.Helper()
+	if expectValid {
+		checkRelationshipSuccess(t, result)
+	} else {
+		checkRelationshipFailure(t, result, errorSubstr)
+	}
+}
+
+func checkRelationshipSuccess(t *testing.T, result PolicyValidationResult) {
+	t.Helper()
+	if !result.Valid {
+		t.Errorf("Expected valid, got errors: %v", result.Errors)
+	}
+}
+
+func checkRelationshipFailure(t *testing.T, result PolicyValidationResult, errorSubstr string) {
+	t.Helper()
+	if result.Valid {
+		t.Error("Expected invalid, but validation passed")
+		return
+	}
+	if errorSubstr == "" {
+		return
+	}
+	if !relationshipErrorContains(result.Errors, errorSubstr) {
+		t.Errorf("Expected error containing %q, got: %v", errorSubstr, result.Errors)
+	}
+}
+
+func relationshipErrorContains(errors []PolicyError, substr string) bool {
+	for _, e := range errors {
+		if contains(e.Message, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// TestExtensionLiteralValidation tests validation of extension type literals
+func TestExtensionLiteralValidation(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["User"]
+					}
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+		errorSubstr string
+	}{
+		{"valid IP address literal", `permit(principal, action, resource) when { ip("192.168.1.1").isLoopback() == false };`, true, ""},
+		{"invalid IP address literal", `permit(principal, action, resource) when { ip("not-an-ip").isLoopback() };`, false, "extensionErr"},
+		{"valid decimal literal", `permit(principal, action, resource) when { decimal("10.5").lessThan(decimal("20.0")) };`, true, ""},
+		{"invalid decimal literal", `permit(principal, action, resource) when { decimal("not-a-decimal").lessThan(decimal("1.0")) };`, false, "extensionErr"},
+		{"valid datetime literal", `permit(principal, action, resource) when { datetime("2024-01-01T00:00:00Z").toDate() == datetime("2024-01-01T00:00:00Z").toDate() };`, true, ""},
+		{"invalid datetime literal", `permit(principal, action, resource) when { datetime("not-a-datetime").toDate() == datetime("2024-01-01").toDate() };`, false, "extensionErr"},
+		{"valid duration literal", `permit(principal, action, resource) when { duration("1h30m").toMinutes() > 0 };`, true, ""},
+		{"invalid duration literal", `permit(principal, action, resource) when { duration("not-a-duration").toMinutes() > 0 };`, false, "extensionErr"},
+		{"empty IP literal", `permit(principal, action, resource) when { ip("").isLoopback() };`, false, "extensionErr"},
+		{"empty decimal literal", `permit(principal, action, resource) when { decimal("").lessThan(decimal("1.0")) };`, false, "extensionErr"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			runExtensionLiteralTest(t, s, tc.policy, tc.expectValid, tc.errorSubstr)
+		})
+	}
+}
+
+func runExtensionLiteralTest(t *testing.T, s *schema.Schema, policyStr string, expectValid bool, errorSubstr string) {
+	t.Helper()
+	policies := cedar.NewPolicySet()
+	var policy cedar.Policy
+	if err := policy.UnmarshalCedar([]byte(policyStr)); err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+	policies.Add("test", &policy)
+
+	result := ValidatePolicies(s, policies)
+	checkExtensionResult(t, result, expectValid, errorSubstr)
+}
+
+func checkExtensionResult(t *testing.T, result PolicyValidationResult, expectValid bool, errorSubstr string) {
+	t.Helper()
+	if expectValid {
+		if !result.Valid {
+			t.Errorf("Expected valid, got errors: %v", result.Errors)
+		}
+		return
+	}
+	if result.Valid {
+		t.Error("Expected invalid, but validation passed")
+		return
+	}
+	if errorSubstr != "" && !hasErrorContaining(result.Errors, errorSubstr) {
+		t.Errorf("Expected error containing %q, got: %v", errorSubstr, result.Errors)
+	}
+}
+
+func hasErrorContaining(errors []PolicyError, substr string) bool {
+	for _, e := range errors {
+		if strings.Contains(e.Message, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestVariableTypechecking tests type inference for Cedar variables
+func TestVariableTypechecking(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"name": {"type": "String", "required": true}
+						}
+					}
+				},
+				"Document": {}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["Document"],
+						"context": {
+							"type": "Record",
+							"attributes": {
+								"ip": {"type": "String", "required": true}
+							}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+	}{
+		{
+			name:        "principal attribute access",
+			policy:      `permit(principal == User::"alice", action == Action::"view", resource) when { principal.name == "alice" };`,
+			expectValid: true,
+		},
+		{
+			name:        "context attribute access",
+			policy:      `permit(principal, action == Action::"view", resource) when { context.ip == "127.0.0.1" };`,
+			expectValid: true,
+		},
+		{
+			name:        "action variable",
+			policy:      `permit(principal, action == Action::"view", resource) when { action == Action::"view" };`,
+			expectValid: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policies := cedar.NewPolicySet()
+			var policy cedar.Policy
+			if err := policy.UnmarshalCedar([]byte(tc.policy)); err != nil {
+				t.Fatalf("Failed to parse policy: %v", err)
+			}
+			policies.Add("test", &policy)
+
+			result := ValidatePolicies(s, policies)
+			if tc.expectValid && !result.Valid {
+				t.Errorf("Expected valid, got errors: %v", result.Errors)
+			}
+			if !tc.expectValid && result.Valid {
+				t.Error("Expected invalid, but validation passed")
+			}
+		})
+	}
+}
+
+// TestArithmeticOperations tests type checking for arithmetic operations
+func TestArithmeticOperations(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"score": {"type": "Long", "required": true},
+							"name": {"type": "String", "required": true}
+						}
+					}
+				}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["User"]
+					}
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+		errorSubstr string
+	}{
+		{"valid addition", `permit(principal == User::"alice", action, resource) when { principal.score + 10 > 0 };`, true, ""},
+		{"valid subtraction", `permit(principal == User::"alice", action, resource) when { principal.score - 5 > 0 };`, true, ""},
+		{"valid multiplication", `permit(principal == User::"alice", action, resource) when { principal.score * 2 > 0 };`, true, ""},
+		{"valid negation", `permit(principal == User::"alice", action, resource) when { -principal.score < 0 };`, true, ""},
+		{"string cannot be added", `permit(principal == User::"alice", action, resource) when { principal.name + 1 > 0 };`, false, "unexpectedType"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			runExtensionLiteralTest(t, s, tc.policy, tc.expectValid, tc.errorSubstr)
+		})
+	}
+}
+
+// TestRecordAttributeAccess tests type checking for record attribute access
+func TestRecordAttributeAccess(t *testing.T) {
+	schemaJSON := `{
+		"": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"profile": {
+								"type": "Record",
+								"required": true,
+								"attributes": {
+									"name": {"type": "String", "required": true},
+									"age": {"type": "Long", "required": false}
+								}
+							}
+						}
+					}
+				}
+			},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["User"],
+						"resourceTypes": ["User"]
+					}
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		policy      string
+		expectValid bool
+		errorSubstr string
+	}{
+		{"valid nested attribute access", `permit(principal == User::"alice", action, resource) when { principal.profile.name == "Alice" };`, true, ""},
+		{"has check on optional nested attribute", `permit(principal == User::"alice", action, resource) when { principal.profile has age };`, true, ""},
+		{"unknown attribute access", `permit(principal == User::"alice", action, resource) when { principal.profile.unknown == "x" };`, false, "not found"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			runExtensionLiteralTest(t, s, tc.policy, tc.expectValid, tc.errorSubstr)
 		})
 	}
 }

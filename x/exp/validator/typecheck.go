@@ -16,6 +16,7 @@ package validator
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/cedar-policy/cedar-go/types"
@@ -28,6 +29,7 @@ type typeContext struct {
 	principalTypes []types.EntityType // Possible types for principal
 	resourceTypes  []types.EntityType // Possible types for resource
 	actionUID      *types.EntityUID   // Specific action (if known)
+	contextType    RecordType         // Context type for the effective actions
 	errors         []string
 	currentLevel   int // Current attribute dereference level
 }
@@ -38,10 +40,16 @@ func (v *Validator) typecheckPolicy(p *ast.Policy) []string {
 		v: v,
 	}
 
-	// Determine the types of principal, action, and resource from scope
-	ctx.principalTypes = v.extractPrincipalTypes(p.Principal, p.Action)
-	ctx.resourceTypes = v.extractResourceTypes(p.Resource, p.Action)
+	// Determine the effective types considering all scope constraints.
+	// This is important for detecting impossible policies in conditions.
+	// For example, if principal == Type0::... and action is "all",
+	// we need to find which actions allow Type0 as principal,
+	// and use ONLY those actions' resource types.
+	effectiveActions := v.getEffectiveActions(p.Principal, p.Action, p.Resource)
+	ctx.principalTypes = v.extractEffectivePrincipalTypes(p.Principal, effectiveActions)
+	ctx.resourceTypes = v.extractEffectiveResourceTypes(p.Resource, effectiveActions)
 	ctx.actionUID = v.extractActionUID(p.Action)
+	ctx.contextType = v.extractEffectiveContextType(effectiveActions)
 
 	// Type-check each condition
 	for _, cond := range p.Conditions {
@@ -54,108 +62,201 @@ func (v *Validator) typecheckPolicy(p *ast.Policy) []string {
 		// as a condition - this is a schema error that should be reported.
 		if _, isUnspecified := inferredType.(UnspecifiedType); isUnspecified {
 			ctx.errors = append(ctx.errors,
-				"condition uses value with unspecified type from schema")
+				"unexpectedType: condition uses value with unspecified type from schema")
 		} else if !isTypeBoolean(inferredType) && !isTypeUnknown(inferredType) {
 			ctx.errors = append(ctx.errors,
-				fmt.Sprintf("condition must be boolean, got %s", inferredType))
+				fmt.Sprintf("unexpectedType: condition must be boolean, got %s", inferredType))
 		}
 	}
 
 	return ctx.errors
 }
 
-// extractPrincipalTypes determines possible principal types from scope
-func (v *Validator) extractPrincipalTypes(scope ast.IsPrincipalScopeNode, actionScope ast.IsActionScopeNode) []types.EntityType {
-	actionTypes := v.getActionPrincipalTypes(actionScope)
-	return v.resolveEntityScopeTypes(scope, actionTypes)
+// getEffectiveActions returns the actions that could potentially match all scope constraints.
+// This filters out actions that cannot satisfy the principal or resource scope.
+func (v *Validator) getEffectiveActions(
+	principalScope ast.IsPrincipalScopeNode,
+	actionScope ast.IsActionScopeNode,
+	resourceScope ast.IsResourceScopeNode,
+) []*ActionTypeInfo {
+	candidateActions := v.getCandidateActions(actionScope)
+	if len(candidateActions) == 0 {
+		return nil
+	}
+
+	principalFiltered := v.filterByPrincipalScope(candidateActions, principalScope)
+	if len(principalFiltered) == 0 {
+		return nil
+	}
+
+	return v.filterByResourceScope(principalFiltered, resourceScope)
 }
 
-// extractResourceTypes determines possible resource types from scope
-func (v *Validator) extractResourceTypes(scope ast.IsResourceScopeNode, actionScope ast.IsActionScopeNode) []types.EntityType {
-	actionTypes := v.getActionResourceTypes(actionScope)
-	return v.resolveEntityScopeTypes(scope, actionTypes)
-}
-
-// getActionPrincipalTypes extracts principal types from action scope.
-func (v *Validator) getActionPrincipalTypes(actionScope ast.IsActionScopeNode) []types.EntityType {
+// getCandidateActions returns actions matching the action scope.
+func (v *Validator) getCandidateActions(actionScope ast.IsActionScopeNode) []*ActionTypeInfo {
 	switch a := actionScope.(type) {
 	case ast.ScopeTypeAll:
-		// For unscoped action (all actions), return union of all action's principal types.
-		// This enables type checking even when no specific action is constrained.
-		return v.allActionPrincipalTypes()
+		return v.allActions()
 	case ast.ScopeTypeEq:
 		if info, ok := v.actionTypes[a.Entity]; ok {
-			return info.PrincipalTypes
+			return []*ActionTypeInfo{info}
 		}
 	case ast.ScopeTypeInSet:
-		return v.unionActionPrincipalTypes(a.Entities)
+		return v.actionsInSet(a.Entities)
 	}
 	return nil
 }
 
-// getActionResourceTypes extracts resource types from action scope.
-func (v *Validator) getActionResourceTypes(actionScope ast.IsActionScopeNode) []types.EntityType {
-	switch a := actionScope.(type) {
-	case ast.ScopeTypeAll:
-		// For unscoped action (all actions), return union of all action's resource types.
-		// This enables type checking even when no specific action is constrained.
-		return v.allActionResourceTypes()
-	case ast.ScopeTypeEq:
-		if info, ok := v.actionTypes[a.Entity]; ok {
-			return info.ResourceTypes
-		}
-	case ast.ScopeTypeInSet:
-		return v.unionActionResourceTypes(a.Entities)
-	}
-	return nil
-}
-
-// unionActionPrincipalTypes returns the union of principal types from multiple actions.
-func (v *Validator) unionActionPrincipalTypes(actionUIDs []types.EntityUID) []types.EntityType {
-	typeSet := make(map[types.EntityType]bool)
-	for _, actionUID := range actionUIDs {
-		if info, ok := v.actionTypes[actionUID]; ok {
-			for _, pt := range info.PrincipalTypes {
-				typeSet[pt] = true
-			}
-		}
-	}
-	return mapKeysToSlice(typeSet)
-}
-
-// unionActionResourceTypes returns the union of resource types from multiple actions.
-func (v *Validator) unionActionResourceTypes(actionUIDs []types.EntityUID) []types.EntityType {
-	typeSet := make(map[types.EntityType]bool)
-	for _, actionUID := range actionUIDs {
-		if info, ok := v.actionTypes[actionUID]; ok {
-			for _, rt := range info.ResourceTypes {
-				typeSet[rt] = true
-			}
-		}
-	}
-	return mapKeysToSlice(typeSet)
-}
-
-// allActionPrincipalTypes returns the union of principal types from all actions.
-func (v *Validator) allActionPrincipalTypes() []types.EntityType {
-	typeSet := make(map[types.EntityType]bool)
+// allActions returns all defined actions.
+func (v *Validator) allActions() []*ActionTypeInfo {
+	var actions []*ActionTypeInfo
 	for _, info := range v.actionTypes {
-		for _, pt := range info.PrincipalTypes {
+		actions = append(actions, info)
+	}
+	return actions
+}
+
+// actionsInSet returns actions matching the given entity UIDs.
+func (v *Validator) actionsInSet(entities []types.EntityUID) []*ActionTypeInfo {
+	var actions []*ActionTypeInfo
+	for _, entity := range entities {
+		if info, ok := v.actionTypes[entity]; ok {
+			actions = append(actions, info)
+		}
+	}
+	return actions
+}
+
+// filterByPrincipalScope filters actions by principal scope compatibility.
+func (v *Validator) filterByPrincipalScope(actions []*ActionTypeInfo, scope ast.IsPrincipalScopeNode) []*ActionTypeInfo {
+	principalType := v.extractScopeEntityType(scope)
+	var filtered []*ActionTypeInfo
+	for _, action := range actions {
+		if principalType == "" || v.typeInList(principalType, action.PrincipalTypes) {
+			filtered = append(filtered, action)
+		}
+	}
+	return filtered
+}
+
+// filterByResourceScope filters actions by resource scope compatibility.
+func (v *Validator) filterByResourceScope(actions []*ActionTypeInfo, scope ast.IsResourceScopeNode) []*ActionTypeInfo {
+	resourceType := v.extractScopeEntityType(scope)
+	var filtered []*ActionTypeInfo
+	for _, action := range actions {
+		if resourceType == "" || v.typeInList(resourceType, action.ResourceTypes) {
+			filtered = append(filtered, action)
+		}
+	}
+	return filtered
+}
+
+// extractScopeEntityType extracts the entity type from a scope if it specifies one.
+// Returns empty string if the scope doesn't constrain to a specific type.
+func (v *Validator) extractScopeEntityType(scope ast.IsScopeNode) types.EntityType {
+	switch s := scope.(type) {
+	case ast.ScopeTypeEq:
+		return s.Entity.Type
+	case ast.ScopeTypeIs:
+		return s.Type
+	case ast.ScopeTypeIsIn:
+		return s.Type
+	case ast.ScopeTypeIn:
+		return s.Entity.Type
+	}
+	return ""
+}
+
+// extractEffectivePrincipalTypes extracts principal types from effective actions.
+func (v *Validator) extractEffectivePrincipalTypes(scope ast.IsPrincipalScopeNode, effectiveActions []*ActionTypeInfo) []types.EntityType {
+	if len(effectiveActions) == 0 {
+		return nil
+	}
+
+	// Get union of principal types from effective actions
+	typeSet := make(map[types.EntityType]bool)
+	for _, action := range effectiveActions {
+		for _, pt := range action.PrincipalTypes {
 			typeSet[pt] = true
 		}
 	}
-	return mapKeysToSlice(typeSet)
+	actionTypes := mapKeysToSlice(typeSet)
+
+	return v.resolveEntityScopeTypes(scope, actionTypes)
 }
 
-// allActionResourceTypes returns the union of resource types from all actions.
-func (v *Validator) allActionResourceTypes() []types.EntityType {
+// extractEffectiveResourceTypes extracts resource types from effective actions.
+func (v *Validator) extractEffectiveResourceTypes(scope ast.IsResourceScopeNode, effectiveActions []*ActionTypeInfo) []types.EntityType {
+	if len(effectiveActions) == 0 {
+		return nil
+	}
+
+	// Get union of resource types from effective actions
 	typeSet := make(map[types.EntityType]bool)
-	for _, info := range v.actionTypes {
-		for _, rt := range info.ResourceTypes {
+	for _, action := range effectiveActions {
+		for _, rt := range action.ResourceTypes {
 			typeSet[rt] = true
 		}
 	}
-	return mapKeysToSlice(typeSet)
+	actionTypes := mapKeysToSlice(typeSet)
+
+	return v.resolveEntityScopeTypes(scope, actionTypes)
+}
+
+// extractEffectiveContextType extracts the context type from effective actions.
+// For multiple actions, computes the INTERSECTION of context attributes.
+// An attribute is only available if it exists in ALL actions' context types.
+// This ensures accessing context.attr is safe for all possible actions.
+//
+// Returns:
+// - For no effective actions: RecordType{} with nil Attributes (unknown, lenient)
+// - For single action: that action's context type (fully known)
+// - For multiple actions: intersection of their context attributes
+//   - If intersection is empty, returns RecordType with empty (non-nil) Attributes
+//   - This means accessing ANY attribute is an attrNotFound error (matches Lean)
+func (v *Validator) extractEffectiveContextType(effectiveActions []*ActionTypeInfo) RecordType {
+	if len(effectiveActions) == 0 {
+		return RecordType{} // Unknown context, be lenient
+	}
+	if len(effectiveActions) == 1 {
+		return effectiveActions[0].Context
+	}
+	return v.computeContextIntersection(effectiveActions)
+}
+
+// computeContextIntersection computes the intersection of context attributes from multiple actions.
+func (v *Validator) computeContextIntersection(actions []*ActionTypeInfo) RecordType {
+	intersection := copyAttributes(actions[0].Context.Attributes)
+
+	for i := 1; i < len(actions); i++ {
+		intersectAttributes(intersection, actions[i].Context.Attributes)
+	}
+
+	// Return with non-nil Attributes map (empty means "known but no common attributes")
+	return RecordType{Attributes: intersection}
+}
+
+// copyAttributes creates a copy of an attribute map.
+func copyAttributes(attrs map[string]AttributeType) map[string]AttributeType {
+	result := make(map[string]AttributeType)
+	maps.Copy(result, attrs)
+	return result
+}
+
+// intersectAttributes modifies intersection to keep only attributes that exist in both maps with matching types.
+func intersectAttributes(intersection map[string]AttributeType, other map[string]AttributeType) {
+	for name, attr := range intersection {
+		otherAttr, ok := other[name]
+		if !ok || !TypesMatch(attr.Type, otherAttr.Type) {
+			delete(intersection, name)
+			continue
+		}
+		// Keep the stricter "required" setting
+		if !otherAttr.Required {
+			attr.Required = false
+			intersection[name] = attr
+		}
+	}
 }
 
 // mapKeysToSlice extracts keys from a map to a slice.
@@ -237,6 +338,8 @@ func (ctx *typeContext) typecheck(node ast.IsNode) CedarType {
 	case ast.NodeTypeIsIn:
 		ctx.typecheck(n.Left)
 		ctx.typecheck(n.Entity)
+		// Check for impossible "is ... in ..." relationships
+		ctx.checkImpossibleIsInRelationship(n)
 		return BoolType{}
 	case ast.NodeTypeAccess:
 		return ctx.typecheckAccess(n)
@@ -274,7 +377,7 @@ func (ctx *typeContext) typecheck(node ast.IsNode) CedarType {
 func (ctx *typeContext) typecheckUnaryBool(arg ast.IsNode, opName string) CedarType {
 	argType := ctx.typecheck(arg)
 	if !isTypeBoolean(argType) && !isTypeUnknown(argType) {
-		ctx.errors = append(ctx.errors, fmt.Sprintf("%s requires boolean operand, got %s", opName, argType))
+		ctx.errors = append(ctx.errors, fmt.Sprintf("unexpectedType: %s requires boolean operand, got %s", opName, argType))
 	}
 	return BoolType{}
 }
@@ -283,7 +386,7 @@ func (ctx *typeContext) typecheckUnaryBool(arg ast.IsNode, opName string) CedarT
 func (ctx *typeContext) typecheckUnaryLong(arg ast.IsNode, opName string) CedarType {
 	argType := ctx.typecheck(arg)
 	if !isTypeLong(argType) && !isTypeUnknown(argType) {
-		ctx.errors = append(ctx.errors, fmt.Sprintf("%s requires Long operand, got %s", opName, argType))
+		ctx.errors = append(ctx.errors, fmt.Sprintf("unexpectedType: %s requires Long operand, got %s", opName, argType))
 	}
 	return LongType{}
 }
@@ -292,7 +395,7 @@ func (ctx *typeContext) typecheckUnaryLong(arg ast.IsNode, opName string) CedarT
 func (ctx *typeContext) typecheckUnarySet(arg ast.IsNode) CedarType {
 	argType := ctx.typecheck(arg)
 	if !isTypeSet(argType) && !isTypeUnknown(argType) {
-		ctx.errors = append(ctx.errors, fmt.Sprintf("isEmpty() requires Set operand, got %s", argType))
+		ctx.errors = append(ctx.errors, fmt.Sprintf("unexpectedType: isEmpty() requires Set operand, got %s", argType))
 	}
 	return BoolType{}
 }
@@ -301,7 +404,7 @@ func (ctx *typeContext) typecheckUnarySet(arg ast.IsNode) CedarType {
 func (ctx *typeContext) typecheckUnaryString(arg ast.IsNode) CedarType {
 	argType := ctx.typecheck(arg)
 	if !isTypeString(argType) && !isTypeUnknown(argType) {
-		ctx.errors = append(ctx.errors, fmt.Sprintf("like operator requires String operand, got %s", argType))
+		ctx.errors = append(ctx.errors, fmt.Sprintf("unexpectedType: like operator requires String operand, got %s", argType))
 	}
 	return BoolType{}
 }
@@ -310,22 +413,46 @@ func (ctx *typeContext) typecheckUnaryString(arg ast.IsNode) CedarType {
 func (ctx *typeContext) typecheckConditional(n ast.NodeTypeIfThenElse) CedarType {
 	condType := ctx.typecheck(n.If)
 	if !isTypeBoolean(condType) && !isTypeUnknown(condType) {
-		ctx.errors = append(ctx.errors, fmt.Sprintf("if condition must be boolean, got %s", condType))
+		ctx.errors = append(ctx.errors, fmt.Sprintf("unexpectedType: if condition must be boolean, got %s", condType))
 	}
 	thenType := ctx.typecheck(n.Then)
 	elseType := ctx.typecheck(n.Else)
-	return unifyTypes(thenType, elseType)
+	unified := unifyTypes(thenType, elseType)
+	// Check if unification failed - report lubErr
+	if _, isUnknown := unified.(UnknownType); isUnknown {
+		if !isTypeUnknown(thenType) && !isTypeUnknown(elseType) {
+			ctx.errors = append(ctx.errors,
+				fmt.Sprintf("lubErr: if-then-else branches have incompatible types: %s and %s", thenType, elseType))
+		}
+	}
+	return unified
 }
 
 // typecheckSetLiteral handles set literal expressions.
 func (ctx *typeContext) typecheckSetLiteral(n ast.NodeTypeSet) CedarType {
 	if len(n.Elements) == 0 {
+		// Empty set literals are a type error in Lean (emptySetErr)
+		// because the element type cannot be inferred.
+		ctx.errors = append(ctx.errors, "emptySetErr: cannot infer element type of empty set literal")
 		return SetType{Element: UnknownType{}}
 	}
 	var elemType CedarType = UnknownType{}
+	var incompatibleTypes []CedarType
 	for _, elem := range n.Elements {
 		t := ctx.typecheck(elem)
-		elemType = unifyTypes(elemType, t)
+		unified := unifyTypes(elemType, t)
+		// Check if unification failed (resulted in UnknownType when both inputs were known)
+		if _, isUnknown := unified.(UnknownType); isUnknown {
+			if !isTypeUnknown(elemType) && !isTypeUnknown(t) {
+				// Types are incompatible - collect them for error reporting
+				incompatibleTypes = append(incompatibleTypes, t)
+			}
+		}
+		elemType = unified
+	}
+	// Report incompatible set types if any were found
+	if len(incompatibleTypes) > 0 {
+		ctx.errors = append(ctx.errors, "incompatibleSetTypes: set elements have incompatible types")
 	}
 	return SetType{Element: elemType}
 }
@@ -342,14 +469,28 @@ func (ctx *typeContext) typecheckRecordLiteral(n ast.NodeTypeRecord) CedarType {
 
 // typecheckValue handles literal values and checks for unknown entity types.
 func (ctx *typeContext) typecheckValue(val types.Value) CedarType {
-	// Check for entity literals with unknown entity types
 	if euid, ok := val.(types.EntityUID); ok {
-		// Check if this entity type exists in the schema
-		if _, exists := ctx.v.entityTypes[euid.Type]; !exists && !ctx.v.isActionEntityType(euid.Type) {
-			ctx.errors = append(ctx.errors, fmt.Sprintf("unknownEntity: entity type %s is not defined in schema", euid.Type))
-		}
+		ctx.checkEntityTypeKnown(euid)
 	}
 	return ctx.v.inferType(val)
+}
+
+// checkEntityTypeKnown verifies that an entity literal references a known type.
+func (ctx *typeContext) checkEntityTypeKnown(euid types.EntityUID) {
+	if _, exists := ctx.v.entityTypes[euid.Type]; exists {
+		return // Type is known
+	}
+
+	if ctx.v.isActionEntityType(euid.Type) {
+		// For action entity types, the specific entity must be a defined action
+		if !ctx.v.isKnownActionEntity(euid) {
+			ctx.errors = append(ctx.errors, fmt.Sprintf("unknownEntity: entity %s is not defined in schema", euid))
+		}
+		return
+	}
+
+	// Not in entityTypes and not an action type - unknown entity
+	ctx.errors = append(ctx.errors, fmt.Sprintf("unknownEntity: entity type %s is not defined in schema", euid.Type))
 }
 
 // typecheckVariable handles variable references (principal, action, resource, context)
@@ -371,12 +512,8 @@ func (ctx *typeContext) typecheckVariable(n ast.NodeTypeVariable) CedarType {
 		}
 		return EntityType{}
 	case "context":
-		if ctx.actionUID != nil {
-			if info, ok := ctx.v.actionTypes[*ctx.actionUID]; ok {
-				return info.Context
-			}
-		}
-		return RecordType{}
+		// Use the pre-computed context type from effective actions
+		return ctx.contextType
 	default:
 		return UnknownType{}
 	}
@@ -397,11 +534,11 @@ func (ctx *typeContext) typecheckBooleanBinary(node ast.IsNode) CedarType {
 
 	if !isTypeBoolean(leftType) && !isTypeUnknown(leftType) {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("boolean operator requires boolean operands, got %s", leftType))
+			fmt.Sprintf("unexpectedType: boolean operator requires boolean operands, got %s", leftType))
 	}
 	if !isTypeBoolean(rightType) && !isTypeUnknown(rightType) {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("boolean operator requires boolean operands, got %s", rightType))
+			fmt.Sprintf("unexpectedType: boolean operator requires boolean operands, got %s", rightType))
 	}
 	return BoolType{}
 }
@@ -426,7 +563,7 @@ func (ctx *typeContext) typecheckEquality(node ast.IsNode) CedarType {
 	if !isTypeUnknown(leftType) && !isTypeUnknown(rightType) {
 		if !ctx.typesAreComparable(leftType, rightType) {
 			ctx.errors = append(ctx.errors,
-				fmt.Sprintf("type mismatch in equality: cannot compare %s with %s", leftType, rightType))
+				fmt.Sprintf("lubErr: type mismatch in equality: cannot compare %s with %s", leftType, rightType))
 		}
 	}
 
@@ -443,39 +580,41 @@ func (ctx *typeContext) typecheckEquality(node ast.IsNode) CedarType {
 // When principal and resource have disjoint type sets, comparing them for equality
 // will always be false, making any policy with such a condition impossible.
 func (ctx *typeContext) checkPrincipalResourceEquality(left, right ast.IsNode) {
-	// Check if this is a principal == resource or resource == principal comparison
-	leftVar, leftIsVar := left.(ast.NodeTypeVariable)
-	rightVar, rightIsVar := right.(ast.NodeTypeVariable)
-	if !leftIsVar || !rightIsVar {
+	if !ctx.isPrincipalResourceComparison(left, right) {
 		return
 	}
 
-	isPrincipalResource := (string(leftVar.Name) == "principal" && string(rightVar.Name) == "resource") ||
-		(string(leftVar.Name) == "resource" && string(rightVar.Name) == "principal")
-	if !isPrincipalResource {
-		return
-	}
-
-	// Check if principal and resource types are disjoint
 	if len(ctx.principalTypes) == 0 || len(ctx.resourceTypes) == 0 {
-		// If either type set is empty/unknown, we can't determine impossibility
-		return
+		return // Can't determine impossibility with empty type sets
 	}
 
-	// Check for any overlap between principal and resource types
-	hasOverlap := false
-	for _, pt := range ctx.principalTypes {
-		if slices.Contains(ctx.resourceTypes, pt) {
-			hasOverlap = true
-			break
-		}
-	}
-
-	if !hasOverlap {
-		// Types are disjoint - principal and resource can never be equal
+	if !ctx.typeSetsOverlap(ctx.principalTypes, ctx.resourceTypes) {
 		ctx.errors = append(ctx.errors,
 			"impossiblePolicy: principal and resource have disjoint types, equality can never be true")
 	}
+}
+
+// isPrincipalResourceComparison checks if left and right represent principal == resource or vice versa.
+func (ctx *typeContext) isPrincipalResourceComparison(left, right ast.IsNode) bool {
+	leftVar, leftIsVar := left.(ast.NodeTypeVariable)
+	rightVar, rightIsVar := right.(ast.NodeTypeVariable)
+	if !leftIsVar || !rightIsVar {
+		return false
+	}
+
+	leftName, rightName := string(leftVar.Name), string(rightVar.Name)
+	return (leftName == "principal" && rightName == "resource") ||
+		(leftName == "resource" && rightName == "principal")
+}
+
+// typeSetsOverlap checks if two entity type slices have any common element.
+func (ctx *typeContext) typeSetsOverlap(a, b []types.EntityType) bool {
+	for _, pt := range a {
+		if slices.Contains(b, pt) {
+			return true
+		}
+	}
+	return false
 }
 
 // typecheckComparison handles <, <=, >, >= operators
@@ -497,11 +636,11 @@ func (ctx *typeContext) typecheckComparison(node ast.IsNode) CedarType {
 
 	if !isTypeLong(leftType) && !isTypeUnknown(leftType) {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("comparison operator requires Long operands, got %s", leftType))
+			fmt.Sprintf("unexpectedType: comparison operator requires Long operands, got %s", leftType))
 	}
 	if !isTypeLong(rightType) && !isTypeUnknown(rightType) {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("comparison operator requires Long operands, got %s", rightType))
+			fmt.Sprintf("unexpectedType: comparison operator requires Long operands, got %s", rightType))
 	}
 	return BoolType{}
 }
@@ -523,11 +662,11 @@ func (ctx *typeContext) typecheckArithmetic(node ast.IsNode) CedarType {
 
 	if !isTypeLong(leftType) && !isTypeUnknown(leftType) {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("arithmetic operator requires Long operands, got %s", leftType))
+			fmt.Sprintf("unexpectedType: arithmetic operator requires Long operands, got %s", leftType))
 	}
 	if !isTypeLong(rightType) && !isTypeUnknown(rightType) {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("arithmetic operator requires Long operands, got %s", rightType))
+			fmt.Sprintf("unexpectedType: arithmetic operator requires Long operands, got %s", rightType))
 	}
 	return LongType{}
 }
@@ -540,16 +679,124 @@ func (ctx *typeContext) typecheckIn(n ast.NodeTypeIn) CedarType {
 	// Left must be an entity or set of entities
 	if !isTypeEntity(leftType) && !isTypeUnknown(leftType) {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("'in' operator left operand must be entity, got %s", leftType))
+			fmt.Sprintf("unexpectedType: 'in' operator left operand must be entity, got %s", leftType))
 	}
 
 	// Right must be an entity or set of entities
 	if !isTypeEntity(rightType) && !isTypeSet(rightType) && !isTypeUnknown(rightType) {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("'in' operator right operand must be entity or set, got %s", rightType))
+			fmt.Sprintf("unexpectedType: 'in' operator right operand must be entity or set, got %s", rightType))
 	}
 
+	// Check for impossible "in" relationships in conditions.
+	// When the left operand is principal or resource, and the right operand is
+	// an entity literal, we can check if the "in" relationship is satisfiable
+	// based on memberOfTypes relationships.
+	ctx.checkImpossibleInRelationship(n.Left, n.Right)
+
 	return BoolType{}
+}
+
+// checkImpossibleInRelationship detects when an "in" relationship is impossible.
+// For example, "principal in Type3::X" is impossible if principal's type has no
+// memberOfTypes chain that includes Type3.
+func (ctx *typeContext) checkImpossibleInRelationship(left, right ast.IsNode) {
+	possibleTypes, varName := ctx.getPossibleTypesForVariable(left)
+	if len(possibleTypes) == 0 {
+		return
+	}
+
+	targetType := ctx.extractEntityTypeFromNode(right)
+	if targetType == "" {
+		return
+	}
+
+	if !ctx.canAnyTypeReachTarget(possibleTypes, targetType) {
+		ctx.errors = append(ctx.errors,
+			fmt.Sprintf("impossiblePolicy: %s in %s can never be true (no type in %v has memberOfTypes containing %s)",
+				varName, targetType, possibleTypes, targetType))
+	}
+}
+
+// getPossibleTypesForVariable returns the possible entity types for a variable node.
+func (ctx *typeContext) getPossibleTypesForVariable(node ast.IsNode) ([]types.EntityType, string) {
+	varNode, ok := node.(ast.NodeTypeVariable)
+	if !ok {
+		return nil, ""
+	}
+
+	switch string(varNode.Name) {
+	case "principal":
+		return ctx.principalTypes, "principal"
+	case "resource":
+		return ctx.resourceTypes, "resource"
+	default:
+		return nil, ""
+	}
+}
+
+// canAnyTypeReachTarget checks if any type in the list can reach the target type.
+func (ctx *typeContext) canAnyTypeReachTarget(possibleTypes []types.EntityType, targetType types.EntityType) bool {
+	for _, pt := range possibleTypes {
+		// An entity is always "in" itself (reflexive)
+		if pt == targetType {
+			return true
+		}
+		if ctx.v.canBeDescendantOf(pt, targetType, make(map[types.EntityType]bool)) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractEntityTypeFromNode extracts the entity type from a node if it's an entity literal.
+func (ctx *typeContext) extractEntityTypeFromNode(node ast.IsNode) types.EntityType {
+	switch n := node.(type) {
+	case ast.NodeValue:
+		if euid, ok := n.Value.(types.EntityUID); ok {
+			return euid.Type
+		}
+	case ast.NodeTypeSet:
+		// For a set of entities, extract type from first element
+		if len(n.Elements) > 0 {
+			return ctx.extractEntityTypeFromNode(n.Elements[0])
+		}
+	}
+	return ""
+}
+
+// checkImpossibleIsInRelationship detects when an "is T in E" relationship is impossible.
+// For example, "principal is Type3 in Type2::X" is impossible if Type3 has no
+// memberOfTypes chain that includes Type2.
+func (ctx *typeContext) checkImpossibleIsInRelationship(n ast.NodeTypeIsIn) {
+	// The "is T" part constrains the type to exactly T (from embedded NodeTypeIs)
+	isType := n.EntityType
+
+	// Get the target entity type from the "in E" part
+	targetType := ctx.extractEntityTypeFromNode(n.Entity)
+	if targetType == "" {
+		return // Can't determine target type
+	}
+
+	// Check if the "is" type can be a descendant of the target type
+	// An entity is always "in" itself (reflexive), so if types match, it's satisfiable
+	if isType == targetType {
+		return // Satisfiable
+	}
+
+	// Check if isType can be a descendant of targetType via memberOfTypes
+	if ctx.v.canBeDescendantOf(isType, targetType, make(map[types.EntityType]bool)) {
+		return // Satisfiable
+	}
+
+	// Determine variable name for error message
+	varName := "entity"
+	if varNode, ok := n.Left.(ast.NodeTypeVariable); ok {
+		varName = string(varNode.Name)
+	}
+	ctx.errors = append(ctx.errors,
+		fmt.Sprintf("impossiblePolicy: %s is %s in %s can never be true (%s has no memberOfTypes containing %s)",
+			varName, isType, targetType, isType, targetType))
 }
 
 // typecheckAccess handles attribute access (e.g., principal.name)
@@ -559,7 +806,7 @@ func (ctx *typeContext) typecheckAccess(n ast.NodeTypeAccess) CedarType {
 
 	if ctx.v.maxAttributeLevel > 0 && ctx.currentLevel > ctx.v.maxAttributeLevel {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("attribute access exceeds maximum level %d (current level: %d)",
+			fmt.Sprintf("levelError: attribute access exceeds maximum level %d (current level: %d)",
 				ctx.v.maxAttributeLevel, ctx.currentLevel))
 	}
 
@@ -575,7 +822,7 @@ func (ctx *typeContext) typecheckAccess(n ast.NodeTypeAccess) CedarType {
 		return UnknownType{}
 	default:
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("cannot access attribute '%s' on type %s", attrName, baseType))
+			fmt.Sprintf("unexpectedType: cannot access attribute '%s' on type %s", attrName, baseType))
 		return UnknownType{}
 	}
 }
@@ -585,20 +832,20 @@ func (ctx *typeContext) typecheckEntityAttrAccess(t EntityType, attrName string)
 	info, ok := ctx.v.entityTypes[t.Name]
 	if !ok {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("cannot access attribute '%s' on unknown entity type %s", attrName, t.Name))
+			fmt.Sprintf("unknownEntity: cannot access attribute '%s' on unknown entity type %s", attrName, t.Name))
 		return UnknownType{}
 	}
 
 	attr, ok := info.Attributes[attrName]
 	if !ok {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("entity type %s does not have attribute '%s'", t.Name, attrName))
+			fmt.Sprintf("attrNotFound: entity type %s does not have attribute '%s'", t.Name, attrName))
 		return UnknownType{}
 	}
 
 	if !attr.Required {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("attribute '%s' on entity type %s is optional; use `has` to check for its presence first", attrName, t.Name))
+			fmt.Sprintf("attrNotFound: attribute '%s' on entity type %s is optional; use `has` to check for its presence first", attrName, t.Name))
 	}
 	return attr.Type
 }
@@ -607,12 +854,19 @@ func (ctx *typeContext) typecheckEntityAttrAccess(t EntityType, attrName string)
 func (ctx *typeContext) typecheckRecordAttrAccess(t RecordType, attrName string) CedarType {
 	attr, ok := t.Attributes[attrName]
 	if !ok {
+		// If we have a known record type (Attributes is not nil), accessing a
+		// non-existent attribute is an error. This happens when context.attr
+		// is accessed but the attribute doesn't exist in all effective actions' contexts.
+		if t.Attributes != nil {
+			ctx.errors = append(ctx.errors,
+				fmt.Sprintf("attrNotFound: attribute '%s' not found in record type", attrName))
+		}
 		return UnknownType{}
 	}
 
 	if !attr.Required {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("attribute '%s' is optional; use `has` to check for its presence first", attrName))
+			fmt.Sprintf("attrNotFound: attribute '%s' is optional; use `has` to check for its presence first", attrName))
 	}
 	return attr.Type
 }
@@ -649,7 +903,7 @@ func (ctx *typeContext) typecheckSetOp(node ast.IsNode) CedarType {
 
 	if !isTypeSet(leftType) && !isTypeUnknown(leftType) {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("set operation requires Set operand, got %s", leftType))
+			fmt.Sprintf("unexpectedType: set operation requires Set operand, got %s", leftType))
 	}
 
 	_ = rightType // Right operand type depends on the specific operation
@@ -738,7 +992,7 @@ func (ctx *typeContext) typecheckExtensionCall(n ast.NodeTypeExtensionCall) Ceda
 func (ctx *typeContext) expectArgs(funcName string, actual []CedarType, expected ...CedarType) {
 	if len(actual) != len(expected) {
 		ctx.errors = append(ctx.errors,
-			fmt.Sprintf("%s() expects %d argument(s), got %d", funcName, len(expected), len(actual)))
+			fmt.Sprintf("extensionErr: %s() expects %d argument(s), got %d", funcName, len(expected), len(actual)))
 		return
 	}
 
@@ -746,7 +1000,7 @@ func (ctx *typeContext) expectArgs(funcName string, actual []CedarType, expected
 		act := actual[i]
 		if !isTypeUnknown(act) && !TypesMatch(exp, act) {
 			ctx.errors = append(ctx.errors,
-				fmt.Sprintf("%s() argument %d: expected %s, got %s", funcName, i+1, exp, act))
+				fmt.Sprintf("extensionErr: %s() argument %d: expected %s, got %s", funcName, i+1, exp, act))
 		}
 	}
 }
