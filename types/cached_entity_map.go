@@ -33,35 +33,18 @@ func NewAncestryCache(entities EntityGetter, allUIDs func(yield func(EntityUID) 
 	}
 
 	// Phase 2: Fixpoint iteration for cycles
-	// Keep propagating ancestors until no set changes
+	cache.propagateAncestors(entities, allUIDs)
+
+	return cache
+}
+
+// propagateAncestors performs fixpoint iteration to handle cycles.
+// It keeps propagating ancestors until no set changes.
+func (c *AncestryCache) propagateAncestors(entities EntityGetter, allUIDs func(yield func(EntityUID) bool)) {
 	for {
 		anyChanged := false
 		for uid := range allUIDs {
-			entity, ok := entities.Get(uid)
-			if !ok {
-				continue
-			}
-
-			current := cache.ancestors[uid]
-			newSet := mapset.Make[EntityUID]()
-
-			// Copy current ancestors
-			for a := range current.All() {
-				newSet.Add(a)
-			}
-
-			// Add parents and all their ancestors
-			for parent := range entity.Parents.All() {
-				newSet.Add(parent)
-				for a := range cache.ancestors[parent].All() {
-					newSet.Add(a)
-				}
-			}
-
-			// Only update if this entity's set actually changed
-			// (sets can only grow, so length comparison suffices)
-			if newSet.Len() != current.Len() {
-				cache.ancestors[uid] = NewEntityUIDSet(newSet.Slice()...)
+			if c.propagateForEntity(entities, uid) {
 				anyChanged = true
 			}
 		}
@@ -70,8 +53,39 @@ func NewAncestryCache(entities EntityGetter, allUIDs func(yield func(EntityUID) 
 			break
 		}
 	}
+}
 
-	return cache
+// propagateForEntity propagates ancestors for a single entity.
+// Returns true if the entity's ancestor set changed.
+func (c *AncestryCache) propagateForEntity(entities EntityGetter, uid EntityUID) bool {
+	entity, ok := entities.Get(uid)
+	if !ok {
+		return false
+	}
+
+	current := c.ancestors[uid]
+	newSet := mapset.Make[EntityUID]()
+
+	// Copy current ancestors
+	for a := range current.All() {
+		newSet.Add(a)
+	}
+
+	// Add parents and all their ancestors
+	for parent := range entity.Parents.All() {
+		newSet.Add(parent)
+		for a := range c.ancestors[parent].All() {
+			newSet.Add(a)
+		}
+	}
+
+	// Only update if this entity's set actually changed
+	// (sets can only grow, so length comparison suffices)
+	if newSet.Len() != current.Len() {
+		c.ancestors[uid] = NewEntityUIDSet(newSet.Slice()...)
+		return true
+	}
+	return false
 }
 
 // computeAncestors computes all ancestors for a single entity using memoization.

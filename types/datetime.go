@@ -74,6 +74,139 @@ func checkValidDay(year int, month, day uint) error {
 	return nil
 }
 
+// datetimeParseState holds intermediate parsing state for datetime strings.
+type datetimeParseState struct {
+	year, month, day     int
+	hour, minute, second uint
+	milli                uint
+	offset               time.Duration
+	remaining            string
+}
+
+// parseYear parses the year portion of a datetime string, handling both
+// standard (4-digit) and expanded (9-digit with sign) formats.
+func parseYear(s string) (year int, remaining string, err error) {
+	if len(s) == 0 {
+		return 0, "", fmt.Errorf("%w: unexpected EOF", errDatetime)
+	}
+
+	yearSign := 1
+	yearLength := 4
+	yearMax := uint(9999)
+
+	if s[0] == '+' || s[0] == '-' {
+		yearLength = 9
+		yearMax = 999999999
+		if s[0] == '-' {
+			yearSign = -1
+		}
+		s = s[1:]
+	} else if !unicode.IsDigit(rune(s[0])) {
+		return 0, "", fmt.Errorf("%w: invalid year", errDatetime)
+	}
+
+	absYear, s, err := parseUint(s, yearLength, yearMax, "year")
+	if err != nil {
+		return 0, "", err
+	}
+
+	return int(absYear) * yearSign, s, nil
+}
+
+// parseDate parses month and day from the datetime string.
+func parseDate(s string) (month, day uint, remaining string, err error) {
+	if s, err = expectChar(s, '-'); err != nil {
+		return 0, 0, "", err
+	}
+
+	if month, s, err = parseUint(s, 2, 12, "month"); err != nil {
+		return 0, 0, "", err
+	}
+
+	if s, err = expectChar(s, '-'); err != nil {
+		return 0, 0, "", err
+	}
+
+	if day, s, err = parseUint(s, 2, 31, "day"); err != nil {
+		return 0, 0, "", err
+	}
+
+	return month, day, s, nil
+}
+
+// parseTimeComponents parses hour, minute, second from the datetime string.
+func parseTimeComponents(s string) (hour, minute, second uint, remaining string, err error) {
+	if s, err = expectChar(s, 'T'); err != nil {
+		return 0, 0, 0, "", err
+	}
+
+	if hour, s, err = parseUint(s, 2, 23, "hour"); err != nil {
+		return 0, 0, 0, "", err
+	}
+
+	if s, err = expectChar(s, ':'); err != nil {
+		return 0, 0, 0, "", err
+	}
+
+	if minute, s, err = parseUint(s, 2, 59, "minute"); err != nil {
+		return 0, 0, 0, "", err
+	}
+
+	if s, err = expectChar(s, ':'); err != nil {
+		return 0, 0, 0, "", err
+	}
+
+	if second, s, err = parseUint(s, 2, 59, "second"); err != nil {
+		return 0, 0, 0, "", err
+	}
+
+	return hour, minute, second, s, nil
+}
+
+// parseMilliseconds parses optional milliseconds from the datetime string.
+func parseMilliseconds(s string) (milli uint, remaining string, err error) {
+	if len(s) > 0 && s[0] == '.' {
+		milli, s, err = parseUint(s[1:], 3, 999, "millisecond")
+		if err != nil {
+			return 0, "", err
+		}
+	}
+	return milli, s, nil
+}
+
+// parseTimezone parses the timezone designator (Z or +/-hhmm) from the datetime string.
+func parseTimezone(s string) (offset time.Duration, remaining string, err error) {
+	if len(s) == 0 {
+		return 0, "", fmt.Errorf("%w: unexpected EOF", errDatetime)
+	}
+
+	switch s[0] {
+	case 'Z':
+		return 0, s[1:], nil
+	case '+', '-':
+		sign := 1
+		if s[0] == '-' {
+			sign = -1
+		}
+		s = s[1:]
+
+		var hh uint
+		if hh, s, err = parseUint(s, 2, 23, "offset hours"); err != nil {
+			return 0, "", err
+		}
+
+		var mm uint
+		if mm, s, err = parseUint(s, 2, 59, "offset minutes"); err != nil {
+			return 0, "", err
+		}
+
+		offset = time.Duration(sign) * ((time.Duration(hh) * time.Hour) + (time.Duration(mm) * time.Minute))
+		return offset, s, nil
+	default:
+		return 0, "", fmt.Errorf("%w: invalid time zone designator", errDatetime)
+	}
+}
+
 // ParseDatetime returns a Cedar datetime when the argument provided
 // represents a compatible datetime or an error
 //
@@ -93,133 +226,62 @@ func checkValidDay(year int, month, day uint) error {
 // - "(+/-)YYYYYYYYY-MM-DDThh:mm:ss(+/-)hhmm" (9-digit year with time zone offset)
 // - "(+/-)YYYYYYYYY-MM-DDThh:mm:ss.SSS(+/-)hhmm" (9-digit year with millisecond and offset)
 func ParseDatetime(s string) (Datetime, error) {
-	var (
-		year                                    int
-		month, day, hour, minute, second, milli uint
-		offset                                  time.Duration
-	)
+	var state datetimeParseState
+	var err error
 
-	if len(s) == 0 {
-		return Datetime{}, fmt.Errorf("%w: unexpected EOF", errDatetime)
-	}
-
-	// Check if this is an expanded year format (starts with + or -)
-	yearSign := 1
-	yearLength := 4
-	yearMax := uint(9999)
-	if s[0] == '+' || s[0] == '-' {
-		yearLength = 9
-		yearMax = 999999999
-		if s[0] == '-' {
-			yearSign = -1
-		}
-		s = s[1:]
-	} else if !unicode.IsDigit(rune(s[0])) {
-		return Datetime{}, fmt.Errorf("%w: invalid year", errDatetime)
-	}
-
-	absYear, s, err := parseUint(s[0:], yearLength, yearMax, "year")
+	// Parse year
+	state.year, state.remaining, err = parseYear(s)
 	if err != nil {
 		return Datetime{}, err
 	}
-	year = int(absYear) * yearSign
 
-	if s, err = expectChar(s, '-'); err != nil {
+	// Parse month and day
+	month, day, remaining, err := parseDate(state.remaining)
+	if err != nil {
+		return Datetime{}, err
+	}
+	state.month = int(month)
+	state.day = int(day)
+	state.remaining = remaining
+
+	if err = checkValidDay(state.year, uint(state.month), uint(state.day)); err != nil {
 		return Datetime{}, err
 	}
 
-	if month, s, err = parseUint(s, 2, 12, "month"); err != nil {
+	// Date-only format
+	if len(state.remaining) == 0 {
+		return Datetime{time.Date(state.year, time.Month(state.month), state.day, 0, 0, 0, 0, time.UTC).UnixMilli()}, nil
+	}
+
+	// Parse time components
+	state.hour, state.minute, state.second, state.remaining, err = parseTimeComponents(state.remaining)
+	if err != nil {
 		return Datetime{}, err
 	}
 
-	if s, err = expectChar(s, '-'); err != nil {
-		return Datetime{}, err
-	}
-
-	if day, s, err = parseUint(s, 2, 31, "day"); err != nil {
-		return Datetime{}, err
-	}
-
-	if err = checkValidDay(year, month, day); err != nil {
-		return Datetime{}, err
-	}
-
-	if len(s) == 0 {
-		return Datetime{time.Date(year, time.Month(month), int(day), 0, 0, 0, 0, time.UTC).UnixMilli()}, nil
-	}
-
-	if s, err = expectChar(s, 'T'); err != nil {
-		return Datetime{}, err
-	}
-
-	if hour, s, err = parseUint(s, 2, 23, "hour"); err != nil {
-		return Datetime{}, err
-	}
-
-	if s, err = expectChar(s, ':'); err != nil {
-		return Datetime{}, err
-	}
-
-	if minute, s, err = parseUint(s, 2, 59, "minute"); err != nil {
-		return Datetime{}, err
-	}
-
-	if s, err = expectChar(s, ':'); err != nil {
-		return Datetime{}, err
-	}
-
-	if second, s, err = parseUint(s, 2, 59, "second"); err != nil {
-		return Datetime{}, err
-	}
-
-	if len(s) == 0 {
+	if len(state.remaining) == 0 {
 		return Datetime{}, fmt.Errorf("%w: unexpected EOF", errDatetime)
 	}
 
 	// Parse optional milliseconds
-	if s[0] == '.' {
-		milli, s, err = parseUint(s[1:], 3, 999, "millisecond")
-		if err != nil {
-			return Datetime{}, err
-		}
+	state.milli, state.remaining, err = parseMilliseconds(state.remaining)
+	if err != nil {
+		return Datetime{}, err
 	}
 
-	if len(s) == 0 {
-		return Datetime{}, fmt.Errorf("%w: unexpected EOF", errDatetime)
+	// Parse timezone
+	state.offset, state.remaining, err = parseTimezone(state.remaining)
+	if err != nil {
+		return Datetime{}, err
 	}
 
-	switch s[0] {
-	case 'Z':
-		s = s[1:]
-	case '+', '-':
-		sign := 1
-		if s[0] == '-' {
-			sign = -1
-		}
-		s = s[1:]
-
-		var hh uint
-		if hh, s, err = parseUint(s, 2, 23, "offset hours"); err != nil {
-			return Datetime{}, err
-		}
-
-		var mm uint
-		if mm, s, err = parseUint(s, 2, 59, "offset minutes"); err != nil {
-			return Datetime{}, err
-		}
-
-		offset = time.Duration(sign) * ((time.Duration(hh) * time.Hour) + (time.Duration(mm) * time.Minute))
-	default:
-		return Datetime{}, fmt.Errorf("%w: invalid time zone designator", errDatetime)
-	}
-
-	if len(s) > 0 {
+	if len(state.remaining) > 0 {
 		return Datetime{}, fmt.Errorf("%w: unexpected additional characters", errDatetime)
 	}
 
-	t := time.Date(year, time.Month(month), int(day),
-		int(hour), int(minute), int(second),
-		int(time.Duration(milli)*time.Millisecond), time.UTC).Add(-offset)
+	t := time.Date(state.year, time.Month(state.month), state.day,
+		int(state.hour), int(state.minute), int(state.second),
+		int(time.Duration(state.milli)*time.Millisecond), time.UTC).Add(-state.offset)
 
 	// Check for boundary conditions before calling UnixMilli(), which has undefined behavior outside of these
 	// boundaries
