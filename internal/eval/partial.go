@@ -58,33 +58,81 @@ func PartialPolicy(env Env, p *ast.Policy) (policy *ast.Policy, keep bool) {
 	}
 	p2.Annotations = slices.Clone(p.Annotations)
 	p2.Conditions = nil
+
 	for _, c := range p.Conditions {
-		body, err := partial(env, c.Body)
-		if errors.Is(err, errVariable) {
-			p2.Conditions = append(p2.Conditions, c)
+		result := processCondition(env, p, c)
+		switch result.action {
+		case conditionSkip:
 			continue
-		} else if errors.Is(err, errIgnore) {
-			if types.Effect(p.Effect) == types.Permit {
-				continue
-			}
+		case conditionDiscard:
 			return nil, false
-		} else if err != nil {
-			p2.Conditions = append(p2.Conditions, ast.ConditionType{Condition: c.Condition, Body: extError(err)})
+		case conditionAppendAndReturn:
+			p2.Conditions = append(p2.Conditions, result.condition)
 			return &p2, true
-		} else if v, ok := body.(ast.NodeValue); ok {
-			if b, bok := v.Value.(types.Boolean); bok {
-				if bool(b) != bool(c.Condition) {
-					return nil, false
-				}
-				continue
-			}
-			err := fmt.Errorf("%w: condition expected bool", ErrType)
-			p2.Conditions = append(p2.Conditions, ast.ConditionType{Condition: c.Condition, Body: extError(err)})
-			return &p2, true
+		case conditionAppend:
+			p2.Conditions = append(p2.Conditions, result.condition)
 		}
-		p2.Conditions = append(p2.Conditions, ast.ConditionType{Condition: c.Condition, Body: body})
 	}
 	return &p2, true
+}
+
+// conditionAction represents what to do after processing a condition.
+type conditionAction int
+
+const (
+	conditionSkip            conditionAction = iota // Skip this condition, continue to next
+	conditionDiscard                                // Discard the entire policy
+	conditionAppend                                 // Append condition and continue
+	conditionAppendAndReturn                        // Append condition and return immediately
+)
+
+// conditionResult holds the result of processing a single condition.
+type conditionResult struct {
+	action    conditionAction
+	condition ast.ConditionType
+}
+
+// processCondition evaluates a single condition and returns the action to take.
+func processCondition(env Env, p *ast.Policy, c ast.ConditionType) conditionResult {
+	body, err := partial(env, c.Body)
+
+	if errors.Is(err, errVariable) {
+		return conditionResult{action: conditionAppend, condition: c}
+	}
+	if errors.Is(err, errIgnore) {
+		if types.Effect(p.Effect) == types.Permit {
+			return conditionResult{action: conditionSkip}
+		}
+		return conditionResult{action: conditionDiscard}
+	}
+	if err != nil {
+		return conditionResult{
+			action:    conditionAppendAndReturn,
+			condition: ast.ConditionType{Condition: c.Condition, Body: extError(err)},
+		}
+	}
+
+	if v, ok := body.(ast.NodeValue); ok {
+		return processConditionValue(v, c)
+	}
+
+	return conditionResult{action: conditionAppend, condition: ast.ConditionType{Condition: c.Condition, Body: body}}
+}
+
+// processConditionValue handles the case where the condition body evaluated to a value.
+func processConditionValue(v ast.NodeValue, c ast.ConditionType) conditionResult {
+	b, bok := v.Value.(types.Boolean)
+	if !bok {
+		err := fmt.Errorf("%w: condition expected bool", ErrType)
+		return conditionResult{
+			action:    conditionAppendAndReturn,
+			condition: ast.ConditionType{Condition: c.Condition, Body: extError(err)},
+		}
+	}
+	if bool(b) != bool(c.Condition) {
+		return conditionResult{action: conditionDiscard}
+	}
+	return conditionResult{action: conditionSkip}
 }
 
 func partialPrincipalScope(env Env, ent types.Value, scope ast.IsPrincipalScopeNode) (ast.IsPrincipalScopeNode, bool) {

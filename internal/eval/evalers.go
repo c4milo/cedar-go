@@ -935,6 +935,61 @@ func newInEval(lhs, rhs Evaler) Evaler {
 	return &inEval{lhs: lhs, rhs: rhs}
 }
 
+// entityTraverser handles BFS traversal of entity hierarchy.
+type entityTraverser struct {
+	env      Env
+	entity   types.EntityUID
+	known    mapset.MapSet[types.EntityUID]
+	todo     []types.EntityUID
+	depth    int
+	maxDepth int
+}
+
+// newEntityTraverser creates a new traverser for BFS hierarchy traversal.
+func newEntityTraverser(env Env, entity types.EntityUID) *entityTraverser {
+	t := &entityTraverser{
+		env:    env,
+		entity: entity,
+	}
+	if env.Limits != nil && env.Limits.MaxEntityGraphDepth > 0 {
+		t.maxDepth = env.Limits.MaxEntityGraphDepth
+	}
+	return t
+}
+
+// checkDepthLimit checks if the depth limit has been exceeded.
+func (t *entityTraverser) checkDepthLimit() error {
+	if t.maxDepth > 0 {
+		t.depth++
+		if t.depth > t.maxDepth {
+			return ErrEntityDepthExceeded
+		}
+	}
+	return nil
+}
+
+// addParentsToQueue adds eligible parents to the traversal queue.
+func (t *entityTraverser) addParentsToQueue(fe types.Entity) {
+	for k := range fe.Parents.All() {
+		p, ok := t.env.Entities.Get(k)
+		if !ok || p.Parents.Len() == 0 || k == t.entity || t.known.Contains(k) {
+			continue
+		}
+		t.todo = append(t.todo, k)
+		t.known.Add(k)
+	}
+}
+
+// next returns the next candidate to process, or false if done.
+func (t *entityTraverser) next() (types.EntityUID, bool) {
+	if len(t.todo) == 0 {
+		return types.EntityUID{}, false
+	}
+	candidate := t.todo[len(t.todo)-1]
+	t.todo = t.todo[:len(t.todo)-1]
+	return candidate, true
+}
+
 func entityInOne(env Env, entity types.EntityUID, parent types.EntityUID) (bool, error) {
 	if entity == parent {
 		return true, nil
@@ -946,38 +1001,22 @@ func entityInOne(env Env, entity types.EntityUID, parent types.EntityUID) (bool,
 	}
 
 	// Slow path: BFS traversal with optional depth limit
-	var known mapset.MapSet[types.EntityUID]
-	var todo []types.EntityUID
-	var candidate = entity
-	depth := 0
-	maxDepth := 0
-	if env.Limits != nil && env.Limits.MaxEntityGraphDepth > 0 {
-		maxDepth = env.Limits.MaxEntityGraphDepth
-	}
+	t := newEntityTraverser(env, entity)
+	candidate := entity
 	for {
-		if maxDepth > 0 {
-			depth++
-			if depth > maxDepth {
-				return false, ErrEntityDepthExceeded
-			}
+		if err := t.checkDepthLimit(); err != nil {
+			return false, err
 		}
 		if fe, ok := env.Entities.Get(candidate); ok {
 			if fe.Parents.Contains(parent) {
 				return true, nil
 			}
-			for k := range fe.Parents.All() {
-				p, ok := env.Entities.Get(k)
-				if !ok || p.Parents.Len() == 0 || k == entity || known.Contains(k) {
-					continue
-				}
-				todo = append(todo, k)
-				known.Add(k)
-			}
+			t.addParentsToQueue(fe)
 		}
-		if len(todo) == 0 {
+		var ok bool
+		if candidate, ok = t.next(); !ok {
 			return false, nil
 		}
-		candidate, todo = todo[len(todo)-1], todo[:len(todo)-1]
 	}
 }
 
@@ -993,38 +1032,22 @@ func entityInSet(env Env, entity types.EntityUID, parents mapset.Container[types
 	}
 
 	// Slow path: BFS traversal with optional depth limit
-	var known mapset.MapSet[types.EntityUID]
-	var todo []types.EntityUID
-	var candidate = entity
-	depth := 0
-	maxDepth := 0
-	if env.Limits != nil && env.Limits.MaxEntityGraphDepth > 0 {
-		maxDepth = env.Limits.MaxEntityGraphDepth
-	}
+	t := newEntityTraverser(env, entity)
+	candidate := entity
 	for {
-		if maxDepth > 0 {
-			depth++
-			if depth > maxDepth {
-				return false, ErrEntityDepthExceeded
-			}
+		if err := t.checkDepthLimit(); err != nil {
+			return false, err
 		}
 		if fe, ok := env.Entities.Get(candidate); ok {
 			if fe.Parents.Intersects(parents) {
 				return true, nil
 			}
-			for k := range fe.Parents.All() {
-				p, ok := env.Entities.Get(k)
-				if !ok || p.Parents.Len() == 0 || k == entity || known.Contains(k) {
-					continue
-				}
-				todo = append(todo, k)
-				known.Add(k)
-			}
+			t.addParentsToQueue(fe)
 		}
-		if len(todo) == 0 {
+		var ok bool
+		if candidate, ok = t.next(); !ok {
 			return false, nil
 		}
-		candidate, todo = todo[len(todo)-1], todo[:len(todo)-1]
 	}
 }
 
