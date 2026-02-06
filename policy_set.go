@@ -8,6 +8,8 @@ import (
 	"iter"
 	"maps"
 	"slices"
+	"sync"
+	"sync/atomic"
 
 	internaljson "github.com/cedar-policy/cedar-go/internal/json"
 	"github.com/cedar-policy/cedar-go/types"
@@ -25,19 +27,53 @@ func (p PolicyMap) All() iter.Seq2[PolicyID, *Policy] {
 	return maps.All(p)
 }
 
-// PolicySet is a set of named policies against which a request can be authorized.
-type PolicySet struct {
-	// policies are stored internally so we can handle performance, concurrency bookkeeping however we want
-	policies PolicyMap
+// policySnapshot is a point-in-time view of a PolicySet's data.
+// The policies map is never modified after creation. The index is derived
+// deterministically from the policies and is built lazily on first access
+// via sync.Once.
+type policySnapshot struct {
+	policies  PolicyMap
+	index     *policyIndex
+	indexOnce sync.Once
+}
 
-	// Index for fast policy lookup - lazily built on first authorization
-	index      *policyIndex
-	indexDirty bool // true when policies changed and index needs rebuild
+// ensureIndex builds the policy index if it hasn't been built yet.
+// Safe for concurrent callers — only one goroutine builds, others wait.
+func (s *policySnapshot) ensureIndex() {
+	s.indexOnce.Do(func() {
+		s.index = buildIndex(s.policies)
+	})
+}
+
+// emptySnapshot is returned when a PolicySet has no stored state (zero value).
+var emptySnapshot = &policySnapshot{policies: PolicyMap{}}
+
+// PolicySet is a set of named policies against which a request can be authorized.
+// It is safe for concurrent use by multiple goroutines. Read operations are
+// lock-free; write operations use copy-on-write.
+type PolicySet struct {
+	snap atomic.Pointer[policySnapshot]
+	mu   sync.Mutex // serializes writers only
+}
+
+// loadSnapshot returns the current immutable snapshot. Lock-free.
+func (p *PolicySet) loadSnapshot() *policySnapshot {
+	if s := p.snap.Load(); s != nil {
+		return s
+	}
+	return emptySnapshot
+}
+
+// newPolicySet creates a PolicySet initialized with the given policies.
+func newPolicySet(policies PolicyMap) *PolicySet {
+	ps := &PolicySet{}
+	ps.snap.Store(&policySnapshot{policies: policies})
+	return ps
 }
 
 // NewPolicySet creates a new, empty PolicySet
 func NewPolicySet() *PolicySet {
-	return &PolicySet{policies: PolicyMap{}, indexDirty: true}
+	return newPolicySet(PolicyMap{})
 }
 
 // NewPolicySetFromBytes will create a PolicySet from the given text document with the given file name used in Position
@@ -48,52 +84,69 @@ func NewPolicySet() *PolicySet {
 func NewPolicySetFromBytes(fileName string, document []byte) (*PolicySet, error) {
 	policySlice, err := NewPolicyListFromBytes(fileName, document)
 	if err != nil {
-		return &PolicySet{}, err
+		return newPolicySet(PolicyMap{}), err
 	}
 	policyMap := make(PolicyMap, len(policySlice))
 	for i, p := range policySlice {
 		policyID := PolicyID(fmt.Sprintf("policy%d", i))
 		policyMap[policyID] = p
 	}
-	return &PolicySet{policies: policyMap, indexDirty: true}, nil
+	return newPolicySet(policyMap), nil
 }
 
 // Get returns the Policy with the given ID. If a policy with the given ID
 // does not exist, nil is returned.
 func (p *PolicySet) Get(policyID PolicyID) *Policy {
-	return p.policies[policyID]
+	return p.loadSnapshot().policies[policyID]
 }
 
 // Add inserts or updates a policy with the given ID. Returns true if a policy
 // with the given ID did not already exist in the set.
 func (p *PolicySet) Add(policyID PolicyID, policy *Policy) bool {
-	_, exists := p.policies[policyID]
-	p.policies[policyID] = policy
-	p.indexDirty = true // Mark index for rebuild
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	old := p.loadSnapshot()
+	newPolicies := maps.Clone(old.policies)
+	_, exists := newPolicies[policyID]
+	newPolicies[policyID] = policy
+
+	p.snap.Store(&policySnapshot{policies: newPolicies})
 	return !exists
 }
 
 // Remove removes a policy from the PolicySet. Returns true if a policy with
 // the given ID already existed in the set.
 func (p *PolicySet) Remove(policyID PolicyID) bool {
-	_, exists := p.policies[policyID]
-	delete(p.policies, policyID)
-	p.indexDirty = true // Mark index for rebuild
-	return exists
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	old := p.loadSnapshot()
+	_, exists := old.policies[policyID]
+	if !exists {
+		return false
+	}
+
+	newPolicies := maps.Clone(old.policies)
+	delete(newPolicies, policyID)
+
+	p.snap.Store(&policySnapshot{policies: newPolicies})
+	return true
 }
 
 // Map returns a new PolicyMap instance of the policies in the PolicySet.
 //
 // Deprecated: use the iterator returned by All() like so: maps.Collect(ps.All())
 func (p *PolicySet) Map() PolicyMap {
-	return maps.Clone(p.policies)
+	return maps.Clone(p.loadSnapshot().policies)
 }
 
 // MarshalCedar emits a concatenated Cedar representation of a PolicySet. The policy names are stripped, but policies
 // are emitted in lexicographical order by ID.
 func (p *PolicySet) MarshalCedar() []byte {
-	ids := make([]PolicyID, 0, len(p.policies))
-	for k := range p.policies {
+	s := p.loadSnapshot()
+	ids := make([]PolicyID, 0, len(s.policies))
+	for k := range s.policies {
 		ids = append(ids, k)
 	}
 	slices.Sort(ids)
@@ -101,10 +154,10 @@ func (p *PolicySet) MarshalCedar() []byte {
 	var buf bytes.Buffer
 	i := 0
 	for _, id := range ids {
-		policy := p.policies[id]
+		policy := s.policies[id]
 		buf.Write(policy.MarshalCedar())
 
-		if i < len(p.policies)-1 {
+		if i < len(s.policies)-1 {
 			buf.WriteString("\n\n")
 		}
 		i++
@@ -116,10 +169,11 @@ func (p *PolicySet) MarshalCedar() []byte {
 //
 // [Cedar documentation]: https://docs.cedarpolicy.com/policies/json-format.html
 func (p *PolicySet) MarshalJSON() ([]byte, error) {
+	s := p.loadSnapshot()
 	jsonPolicySet := internaljson.PolicySetJSON{
-		StaticPolicies: make(internaljson.PolicySet, len(p.policies)),
+		StaticPolicies: make(internaljson.PolicySet, len(s.policies)),
 	}
-	for k, v := range p.policies {
+	for k, v := range s.policies {
 		jsonPolicySet.StaticPolicies[string(k)] = (*internaljson.Policy)(v.ast)
 	}
 	return json.Marshal(jsonPolicySet)
@@ -133,13 +187,14 @@ func (p *PolicySet) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &jsonPolicySet); err != nil {
 		return err
 	}
-	*p = PolicySet{
-		policies:   make(PolicyMap, len(jsonPolicySet.StaticPolicies)),
-		indexDirty: true,
-	}
+	policies := make(PolicyMap, len(jsonPolicySet.StaticPolicies))
 	for k, v := range jsonPolicySet.StaticPolicies {
-		p.policies[PolicyID(k)] = newPolicy((*internalast.Policy)(v))
+		policies[PolicyID(k)] = newPolicy((*internalast.Policy)(v))
 	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.snap.Store(&policySnapshot{policies: policies})
 	return nil
 }
 
@@ -153,8 +208,9 @@ func (p *PolicySet) IsAuthorized(entities types.EntityGetter, req Request) (Deci
 
 // All returns an iterator over the (PolicyID, *Policy) tuples in the PolicySet
 func (p *PolicySet) All() iter.Seq2[PolicyID, *Policy] {
+	s := p.loadSnapshot()
 	return func(yield func(PolicyID, *Policy) bool) {
-		for k, v := range p.policies {
+		for k, v := range s.policies {
 			if !yield(k, v) {
 				break
 			}
@@ -165,7 +221,7 @@ func (p *PolicySet) All() iter.Seq2[PolicyID, *Policy] {
 // policyIndex provides fast policy lookup by action, principal type, and resource type.
 type policyIndex struct {
 	// Index by action EntityUID
-	actionIndex map[string]map[PolicyID]struct{}
+	actionIndex map[EntityUID]map[PolicyID]struct{}
 	// Index by principal entity type
 	principalTypeIndex map[string]map[PolicyID]struct{}
 	// Index by resource entity type
@@ -180,17 +236,13 @@ type policyIndex struct {
 // automatically built on first authorization. Call this after adding all
 // policies if you want to amortize the index build cost.
 func (p *PolicySet) BuildIndex() {
-	p.ensureIndex()
+	p.loadSnapshot().ensureIndex()
 }
 
-// ensureIndex builds or rebuilds the policy index if needed
-func (p *PolicySet) ensureIndex() {
-	if !p.indexDirty && p.index != nil {
-		return
-	}
-
+// buildIndex creates a new policyIndex from the given policies.
+func buildIndex(policies PolicyMap) *policyIndex {
 	idx := &policyIndex{
-		actionIndex:            make(map[string]map[PolicyID]struct{}),
+		actionIndex:            make(map[EntityUID]map[PolicyID]struct{}),
 		principalTypeIndex:     make(map[string]map[PolicyID]struct{}),
 		resourceTypeIndex:      make(map[string]map[PolicyID]struct{}),
 		actionWildcards:        make(map[PolicyID]struct{}),
@@ -198,15 +250,14 @@ func (p *PolicySet) ensureIndex() {
 		resourceTypeWildcards:  make(map[PolicyID]struct{}),
 	}
 
-	for id, policy := range p.policies {
+	for id, policy := range policies {
 		ast := policy.ast
 		indexAction(idx, id, ast.Action)
 		indexPrincipal(idx, id, ast.Principal)
 		indexResource(idx, id, ast.Resource)
 	}
 
-	p.index = idx
-	p.indexDirty = false
+	return idx
 }
 
 // candidateSource represents a source of policy candidates for request matching.
@@ -258,12 +309,13 @@ func buildCheckFuncs(sources []candidateSource, smallest int) []func(PolicyID) b
 
 // forRequest returns an iterator over policies that could match the request
 func (p *PolicySet) forRequest(req Request) iter.Seq2[PolicyID, *Policy] {
-	p.ensureIndex()
-	idx := p.index
+	s := p.loadSnapshot()
+	s.ensureIndex()
+	idx := s.index
 
 	// Get indexed sets
 	sources := []candidateSource{
-		{idx.actionIndex[req.Action.String()], idx.actionWildcards, 0},
+		{idx.actionIndex[req.Action], idx.actionWildcards, 0},
 		{idx.principalTypeIndex[string(req.Principal.Type)], idx.principalTypeWildcards, 0},
 		{idx.resourceTypeIndex[string(req.Resource.Type)], idx.resourceTypeWildcards, 0},
 	}
@@ -275,23 +327,19 @@ func (p *PolicySet) forRequest(req Request) iter.Seq2[PolicyID, *Policy] {
 	checks := buildCheckFuncs(sources, smallest)
 	smallestSource := sources[smallest]
 
-	return p.iterateCandidates(smallestSource, checks)
+	return iterateCandidates(s.policies, smallestSource, checks)
 }
 
 // policyProcessor handles the iteration state for processing policy candidates.
 type policyProcessor struct {
 	policies map[PolicyID]*Policy
 	checks   []func(PolicyID) bool
-	yielded  map[PolicyID]struct{}
 	yield    func(PolicyID, *Policy) bool
 }
 
 // process attempts to yield a policy if it passes all checks.
 // Returns false if iteration should stop.
 func (pp *policyProcessor) process(id PolicyID) bool {
-	if _, seen := pp.yielded[id]; seen {
-		return true
-	}
 	if !pp.passesAllChecks(id) {
 		return true
 	}
@@ -299,7 +347,6 @@ func (pp *policyProcessor) process(id PolicyID) bool {
 	if policy == nil {
 		return true
 	}
-	pp.yielded[id] = struct{}{}
 	return pp.yield(id, policy)
 }
 
@@ -314,12 +361,11 @@ func (pp *policyProcessor) passesAllChecks(id PolicyID) bool {
 }
 
 // iterateCandidates returns an iterator that yields matching policies.
-func (p *PolicySet) iterateCandidates(source candidateSource, checks []func(PolicyID) bool) iter.Seq2[PolicyID, *Policy] {
+func iterateCandidates(policies PolicyMap, source candidateSource, checks []func(PolicyID) bool) iter.Seq2[PolicyID, *Policy] {
 	return func(yield func(PolicyID, *Policy) bool) {
 		pp := &policyProcessor{
-			policies: p.policies,
+			policies: policies,
 			checks:   checks,
-			yielded:  make(map[PolicyID]struct{}),
 			yield:    yield,
 		}
 
@@ -349,20 +395,18 @@ func indexAction(idx *policyIndex, id PolicyID, scope internalast.IsActionScopeN
 	case internalast.ScopeTypeAll:
 		idx.actionWildcards[id] = struct{}{}
 	case internalast.ScopeTypeEq:
-		key := s.Entity.String()
-		if idx.actionIndex[key] == nil {
-			idx.actionIndex[key] = make(map[PolicyID]struct{})
+		if idx.actionIndex[s.Entity] == nil {
+			idx.actionIndex[s.Entity] = make(map[PolicyID]struct{})
 		}
-		idx.actionIndex[key][id] = struct{}{}
+		idx.actionIndex[s.Entity][id] = struct{}{}
 	case internalast.ScopeTypeIn:
 		idx.actionWildcards[id] = struct{}{}
 	case internalast.ScopeTypeInSet:
 		for _, entity := range s.Entities {
-			key := entity.String()
-			if idx.actionIndex[key] == nil {
-				idx.actionIndex[key] = make(map[PolicyID]struct{})
+			if idx.actionIndex[entity] == nil {
+				idx.actionIndex[entity] = make(map[PolicyID]struct{})
 			}
-			idx.actionIndex[key][id] = struct{}{}
+			idx.actionIndex[entity][id] = struct{}{}
 		}
 	default:
 		idx.actionWildcards[id] = struct{}{}
