@@ -81,9 +81,25 @@ func tryFoldUnary(v ast.UnaryNode, mkEval func(a Evaler) Evaler, wrap func(b ast
 }
 
 // fold takes in an ast.Node and finds does as much constant folding as is possible given no PARC data.
-//
-//nolint:revive
 func fold(n ast.IsNode) ast.IsNode {
+	// Try special node types first
+	if result := foldSpecialNode(n); result != nil {
+		return result
+	}
+	// Try binary operations
+	if result := foldBinaryNode(n); result != nil {
+		return result
+	}
+	// Try unary operations
+	if result := foldUnaryNode(n); result != nil {
+		return result
+	}
+	panic(fmt.Sprintf("unknown node type %T", n))
+}
+
+// foldSpecialNode handles special node types that require custom folding logic.
+// Returns nil if the node is not a special type.
+func foldSpecialNode(n ast.IsNode) ast.IsNode {
 	switch v := n.(type) {
 	case ast.NodeTypeAccess:
 		return tryFold(
@@ -109,26 +125,6 @@ func fold(n ast.IsNode) ast.IsNode {
 			},
 			func(nodes []ast.IsNode) ast.IsNode {
 				return ast.NodeTypeHas{StrOpNode: ast.StrOpNode{Arg: nodes[0], Value: v.Value}}
-			},
-		)
-	case ast.NodeTypeGetTag:
-		return tryFold(
-			[]ast.IsNode{v.Left, v.Right},
-			func(_ []types.Value) Evaler {
-				return newErrorEval(fmt.Errorf("fold.GetTag.EntityUID"))
-			},
-			func(nodes []ast.IsNode) ast.IsNode {
-				return ast.NodeTypeGetTag{BinaryNode: ast.BinaryNode{Left: nodes[0], Right: nodes[1]}}
-			},
-		)
-	case ast.NodeTypeHasTag:
-		return tryFold(
-			[]ast.IsNode{v.Left, v.Right},
-			func(_ []types.Value) Evaler {
-				return newErrorEval(fmt.Errorf("fold.HasTag.EntityUID"))
-			},
-			func(nodes []ast.IsNode) ast.IsNode {
-				return ast.NodeTypeHasTag{BinaryNode: ast.BinaryNode{Left: nodes[0], Right: nodes[1]}}
 			},
 		)
 	case ast.NodeTypeLike:
@@ -171,66 +167,105 @@ func fold(n ast.IsNode) ast.IsNode {
 				return ast.NodeTypeIsIn{NodeTypeIs: ast.NodeTypeIs{Left: nodes[0], EntityType: v.EntityType}, Entity: nodes[1]}
 			},
 		)
-
 	case ast.NodeTypeExtensionCall:
-		nodes := make([]ast.IsNode, len(v.Args))
-		copy(nodes, v.Args)
-		return tryFold(nodes,
-			func(values []types.Value) Evaler {
-				args := make([]Evaler, len(values))
-				for i, a := range values {
-					args[i] = newLiteralEval(a)
-				}
-				return newExtensionEval(v.Name, args)
-			},
-			func(nodes []ast.IsNode) ast.IsNode {
-				return ast.NodeTypeExtensionCall{Name: v.Name, Args: nodes}
-			},
-		)
+		return foldExtensionCall(v)
 	case ast.NodeValue:
 		return n
 	case ast.NodeTypeRecord:
-		elements := make([]ast.IsNode, len(v.Elements))
-		for i, pair := range v.Elements {
-			elements[i] = pair.Value
-		}
-		return tryFold(elements,
-			func(values []types.Value) Evaler {
-				m := make(map[types.String]Evaler, len(values))
-				for i, val := range values {
-					m[types.String(v.Elements[i].Key)] = newLiteralEval(val)
-				}
-				return newRecordLiteralEval(m)
-			},
-			func(nodes []ast.IsNode) ast.IsNode {
-				el := make([]ast.RecordElementNode, len(nodes))
-				for i, val := range nodes {
-					el[i] = ast.RecordElementNode{Key: v.Elements[i].Key, Value: val}
-				}
-				return ast.NodeTypeRecord{Elements: el}
-			},
-		)
+		return foldRecord(v)
 	case ast.NodeTypeSet:
-		elements := make([]ast.IsNode, len(v.Elements))
-		copy(elements, v.Elements)
-		return tryFold(elements,
-			func(values []types.Value) Evaler {
-				el := make([]Evaler, len(values))
-				for i, v := range values {
-					el[i] = newLiteralEval(v)
-				}
-				return newSetLiteralEval(el)
-			},
-			func(nodes []ast.IsNode) ast.IsNode {
-				return ast.NodeTypeSet{Elements: nodes}
-			},
-		)
-	case ast.NodeTypeNegate:
-		return tryFoldUnary(v.UnaryNode, newNegateEval, func(b ast.UnaryNode) ast.IsNode { return ast.NodeTypeNegate{UnaryNode: b} })
-	case ast.NodeTypeNot:
-		return tryFoldUnary(v.UnaryNode, newNotEval, func(b ast.UnaryNode) ast.IsNode { return ast.NodeTypeNot{UnaryNode: b} })
+		return foldSet(v)
 	case ast.NodeTypeVariable:
 		return n
+	default:
+		return nil
+	}
+}
+
+// foldExtensionCall folds an extension call node.
+func foldExtensionCall(v ast.NodeTypeExtensionCall) ast.IsNode {
+	nodes := make([]ast.IsNode, len(v.Args))
+	copy(nodes, v.Args)
+	return tryFold(nodes,
+		func(values []types.Value) Evaler {
+			args := make([]Evaler, len(values))
+			for i, a := range values {
+				args[i] = newLiteralEval(a)
+			}
+			return newExtensionEval(v.Name, args)
+		},
+		func(nodes []ast.IsNode) ast.IsNode {
+			return ast.NodeTypeExtensionCall{Name: v.Name, Args: nodes}
+		},
+	)
+}
+
+// foldRecord folds a record literal node.
+func foldRecord(v ast.NodeTypeRecord) ast.IsNode {
+	elements := make([]ast.IsNode, len(v.Elements))
+	for i, pair := range v.Elements {
+		elements[i] = pair.Value
+	}
+	return tryFold(elements,
+		func(values []types.Value) Evaler {
+			m := make(map[types.String]Evaler, len(values))
+			for i, val := range values {
+				m[types.String(v.Elements[i].Key)] = newLiteralEval(val)
+			}
+			return newRecordLiteralEval(m)
+		},
+		func(nodes []ast.IsNode) ast.IsNode {
+			el := make([]ast.RecordElementNode, len(nodes))
+			for i, val := range nodes {
+				el[i] = ast.RecordElementNode{Key: v.Elements[i].Key, Value: val}
+			}
+			return ast.NodeTypeRecord{Elements: el}
+		},
+	)
+}
+
+// foldSet folds a set literal node.
+func foldSet(v ast.NodeTypeSet) ast.IsNode {
+	elements := make([]ast.IsNode, len(v.Elements))
+	copy(elements, v.Elements)
+	return tryFold(elements,
+		func(values []types.Value) Evaler {
+			el := make([]Evaler, len(values))
+			for i, v := range values {
+				el[i] = newLiteralEval(v)
+			}
+			return newSetLiteralEval(el)
+		},
+		func(nodes []ast.IsNode) ast.IsNode {
+			return ast.NodeTypeSet{Elements: nodes}
+		},
+	)
+}
+
+// foldBinaryNode handles binary operation nodes.
+// Returns nil if the node is not a binary operation.
+func foldBinaryNode(n ast.IsNode) ast.IsNode {
+	switch v := n.(type) {
+	case ast.NodeTypeGetTag:
+		return tryFold(
+			[]ast.IsNode{v.Left, v.Right},
+			func(_ []types.Value) Evaler {
+				return newErrorEval(fmt.Errorf("fold.GetTag.EntityUID"))
+			},
+			func(nodes []ast.IsNode) ast.IsNode {
+				return ast.NodeTypeGetTag{BinaryNode: ast.BinaryNode{Left: nodes[0], Right: nodes[1]}}
+			},
+		)
+	case ast.NodeTypeHasTag:
+		return tryFold(
+			[]ast.IsNode{v.Left, v.Right},
+			func(_ []types.Value) Evaler {
+				return newErrorEval(fmt.Errorf("fold.HasTag.EntityUID"))
+			},
+			func(nodes []ast.IsNode) ast.IsNode {
+				return ast.NodeTypeHasTag{BinaryNode: ast.BinaryNode{Left: nodes[0], Right: nodes[1]}}
+			},
+		)
 	case ast.NodeTypeIn:
 		return tryFold(
 			[]ast.IsNode{v.Left, v.Right},
@@ -269,9 +304,22 @@ func fold(n ast.IsNode) ast.IsNode {
 		return tryFoldBinary(v.BinaryNode, newContainsAllEval, func(b ast.BinaryNode) ast.IsNode { return ast.NodeTypeContainsAll{BinaryNode: b} })
 	case ast.NodeTypeContainsAny:
 		return tryFoldBinary(v.BinaryNode, newContainsAnyEval, func(b ast.BinaryNode) ast.IsNode { return ast.NodeTypeContainsAny{BinaryNode: b} })
+	default:
+		return nil
+	}
+}
+
+// foldUnaryNode handles unary operation nodes.
+// Returns nil if the node is not a unary operation.
+func foldUnaryNode(n ast.IsNode) ast.IsNode {
+	switch v := n.(type) {
+	case ast.NodeTypeNegate:
+		return tryFoldUnary(v.UnaryNode, newNegateEval, func(b ast.UnaryNode) ast.IsNode { return ast.NodeTypeNegate{UnaryNode: b} })
+	case ast.NodeTypeNot:
+		return tryFoldUnary(v.UnaryNode, newNotEval, func(b ast.UnaryNode) ast.IsNode { return ast.NodeTypeNot{UnaryNode: b} })
 	case ast.NodeTypeIsEmpty:
 		return tryFoldUnary(v.UnaryNode, newIsEmptyEval, func(b ast.UnaryNode) ast.IsNode { return ast.NodeTypeIsEmpty{UnaryNode: b} })
 	default:
-		panic(fmt.Sprintf("unknown node type %T", v))
+		return nil
 	}
 }
