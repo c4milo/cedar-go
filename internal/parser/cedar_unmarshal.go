@@ -715,9 +715,12 @@ func (p *parser) unary() (ast.Node, error) {
 
 	var res ast.Node
 
-	// special case for max negative long
+	// special case for max negative long (e.g., -9223372036854775808)
+	// We need this because the positive form would overflow int64.
+	// However, we don't apply this for 0 because -0 == 0, which would
+	// lose the negation operation and break roundtrip for cases like --0.
 	tok := p.peek()
-	if len(ops) > 0 && ops[len(ops)-1] && tok.isInt() {
+	if len(ops) > 0 && ops[len(ops)-1] && tok.isInt() && tok.Text != "0" {
 		p.advance()
 		i, err := strconv.ParseInt("-"+tok.Text, 10, 64)
 		if err != nil {
