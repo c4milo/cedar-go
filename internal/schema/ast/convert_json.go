@@ -28,9 +28,11 @@ func cedarQuote(s string) string {
 		case '"':
 			sb.WriteString(`\"`)
 		default:
-			if ch < 0x20 || ch >= 0x7F {
+			if ch < 0x20 || ch == 0x7F {
+				// Non-printable ASCII: use \u{HEX} (Cedar schema escape)
 				sb.WriteString(fmt.Sprintf(`\u{%x}`, ch))
 			} else {
+				// Printable ASCII and non-ASCII UTF-8 pass through directly
 				sb.WriteRune(ch)
 			}
 		}

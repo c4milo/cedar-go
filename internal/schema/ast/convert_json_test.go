@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/cedar-policy/cedar-go/internal/schema/ast"
+	"github.com/cedar-policy/cedar-go/internal/schema/parser"
 	"github.com/cedar-policy/cedar-go/internal/testutil"
 )
 
@@ -55,6 +56,61 @@ func TestConvertJsonToHumanEmpty(t *testing.T) {
 	// Should be empty
 	if len(got.Bytes()) != 0 {
 		t.Errorf("Expected empty output, got: %q", got.String())
+	}
+}
+
+func TestConvertJsonToHumanControlCharsRoundtrip(t *testing.T) {
+	tests := []struct {
+		name       string
+		actionName string
+	}{
+		{"del", "\x7f"},
+		{"tab", "\t"},
+		{"newline", "\n"},
+		{"null", "\x00"},
+		{"bell", "\a"},
+		{"backspace", "\b"},
+		{"escape", "\x1b"},
+		{"mixed", "ok\x7faction"},
+		{"unicode", "\u00e9"},
+		{"printable_ascii", "normal"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			jsonSchema := ast.JSONSchema{
+				"": {
+					Actions: map[string]*ast.JSONAction{
+						tt.actionName: {},
+					},
+				},
+			}
+
+			humanSchema := ast.ConvertJSON2Human(jsonSchema)
+
+			var buf bytes.Buffer
+			if err := ast.Format(humanSchema, &buf); err != nil {
+				t.Fatalf("Format failed: %v", err)
+			}
+
+			cedarText := buf.Bytes()
+
+			// Parse the Cedar text back — this is what failed before the fix
+			parsed, err := parser.ParseFile("test.cedar", cedarText)
+			if err != nil {
+				t.Fatalf("ParseFile failed for action %q: %v\nCedar: %s", tt.actionName, err, cedarText)
+			}
+
+			// Convert back to JSON and verify the action name survived
+			jsonSchema2 := ast.ConvertHuman2JSON(parsed)
+			ns, ok := jsonSchema2[""]
+			if !ok {
+				t.Fatalf("anonymous namespace missing after roundtrip")
+			}
+			if _, ok := ns.Actions[tt.actionName]; !ok {
+				t.Errorf("action name %q lost after roundtrip", tt.actionName)
+			}
+		})
 	}
 }
 
