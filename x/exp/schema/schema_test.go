@@ -1325,6 +1325,213 @@ func TestActionAppliesToValidation(t *testing.T) {
 	}
 }
 
+// TestCoverageGaps tests edge cases for code coverage
+func TestCoverageGaps(t *testing.T) {
+	t.Run("invalid JSON structures", testCoverageInvalidJSON)
+	t.Run("type validation", testCoverageTypeValidation)
+	t.Run("merge edge cases", testCoverageMergeEdgeCases)
+	t.Run("nil handling", testCoverageNilHandling)
+}
+
+func testCoverageInvalidJSON(t *testing.T) {
+	t.Run("NewFromJSON with invalid flat schema JSON structure", func(t *testing.T) {
+		_, err := NewFromJSON([]byte(`{"entityTypes": [1,2,3]}`))
+		if err == nil {
+			t.Error("expected error for invalid entityTypes structure")
+		}
+	})
+
+	t.Run("NewFragmentFromJSON with invalid flat schema", func(t *testing.T) {
+		_, err := NewFragmentFromJSON([]byte(`{"entityTypes": "invalid"}`))
+		if err == nil {
+			t.Error("expected error for invalid flat schema fragment")
+		}
+	})
+
+	t.Run("NewFragmentFromJSON with invalid namespace schema", func(t *testing.T) {
+		_, err := NewFragmentFromJSON([]byte(`{"MyNs": "not an object"}`))
+		if err == nil {
+			t.Error("expected error for invalid namespace schema")
+		}
+	})
+}
+
+func testCoverageTypeValidation(t *testing.T) {
+	t.Run("validateSetTypeRef with nil element", func(t *testing.T) {
+		_, err := NewFromJSON([]byte(`{
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"tags": {"type": "Set"}
+						}
+					}
+				}
+			}
+		}`))
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("validateDefaultTypeRef with undefined common type via FromFragments", func(t *testing.T) {
+		frag, _ := NewFragmentFromJSON([]byte(`{
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"data": {"type": "Entity", "name": "UndefinedCommonType"}
+						}
+					}
+				}
+			}
+		}`))
+		_, err := FromFragments(frag)
+		if err == nil {
+			t.Error("expected error for undefined type reference")
+		}
+	})
+
+	t.Run("isPrimitiveType - test Record type", func(t *testing.T) {
+		_, err := NewFromJSON([]byte(`{
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"metadata": {
+								"type": "Record",
+								"attributes": {
+									"key": {"type": "String"}
+								}
+							}
+						}
+					}
+				}
+			}
+		}`))
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("common type referencing another common type", func(t *testing.T) {
+		_, err := NewFromJSON([]byte(`{
+			"commonTypes": {
+				"Inner": {"type": "String"},
+				"Outer": {"type": "Inner"}
+			},
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"data": {"type": "Outer"}
+						}
+					}
+				}
+			}
+		}`))
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("Set element with undefined entity reference via FromFragments", func(t *testing.T) {
+		frag, _ := NewFragmentFromJSON([]byte(`{
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"refs": {
+								"type": "Set",
+								"element": {"type": "Entity", "name": "UndefinedEntity"}
+							}
+						}
+					}
+				}
+			}
+		}`))
+		_, err := FromFragments(frag)
+		if err == nil {
+			t.Error("expected error for undefined entity in set element")
+		}
+	})
+}
+
+func testCoverageMergeEdgeCases(t *testing.T) {
+	t.Run("merge with nil namespace in source", func(t *testing.T) {
+		frag1, _ := NewFragmentFromJSON([]byte(`{"app": {"entityTypes": {"User": {}}}}`))
+		frag1.jsonSchema["nilns"] = nil
+
+		frag2, _ := NewFragmentFromJSON([]byte(`{"other": {"entityTypes": {"Doc": {}}}}`))
+		merged, err := frag1.Merge(frag2)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if merged == nil {
+			t.Error("merged should not be nil")
+		}
+	})
+
+	t.Run("FromFragments with identifier validation", func(t *testing.T) {
+		frag, _ := NewFragmentFromJSON([]byte(`{}`))
+		schema, err := FromFragments(frag)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if schema == nil {
+			t.Error("schema should not be nil")
+		}
+	})
+}
+
+func testCoverageNilHandling(t *testing.T) {
+	t.Run("copyJSONSchema with nil input", func(t *testing.T) {
+		frag1 := &SchemaFragment{jsonSchema: nil}
+		frag2, _ := NewFragmentFromJSON([]byte(`{"app": {"entityTypes": {"User": {}}}}`))
+		merged, err := frag1.Merge(frag2)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if merged == nil {
+			t.Error("merged should not be nil")
+		}
+	})
+
+	t.Run("copyJSONNamespace with nil input", func(t *testing.T) {
+		frag1, _ := NewFragmentFromJSON([]byte(`{"app": null}`))
+		frag2, _ := NewFragmentFromJSON([]byte(`{"other": {"entityTypes": {"Doc": {}}}}`))
+		merged, err := frag1.Merge(frag2)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if merged == nil {
+			t.Error("merged should not be nil")
+		}
+	})
+
+	t.Run("action appliesTo with nil principalTypes/resourceTypes", func(t *testing.T) {
+		_, err := NewFromJSON([]byte(`{
+			"entityTypes": {"User": {}},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": null,
+						"resourceTypes": null
+					}
+				}
+			}
+		}`))
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}
+
 // TestCedarFormatParsing tests parsing Cedar format schemas
 func TestCedarFormatParsing(t *testing.T) {
 	tests := []struct {
