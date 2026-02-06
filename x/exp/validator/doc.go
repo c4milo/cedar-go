@@ -15,26 +15,61 @@
 // Package validator provides static type-checking validation for Cedar policies,
 // entities, and requests against a schema.
 //
+// # Creating a Validator
+//
+// Use [New] to create a reusable Validator from a schema:
+//
+//	v, err := validator.New(schema)
+//	if err != nil {
+//	    // Schema is malformed (cycles, unknown references, etc.)
+//	}
+//
+// The Validator can then be reused to validate multiple policies, entities, and requests.
+//
+// For one-off validation, use the convenience functions [ValidatePolicies],
+// [ValidateEntities], and [ValidateRequest] which create a Validator internally.
+//
+// # Validator Options
+//
+// Options can be provided to configure the validator behavior:
+//
+//   - [WithMaxAttributeLevel]: Limits attribute access depth (RFC 76 level-based validation).
+//     Level 1 allows principal.name but not principal.manager.name.
+//   - [WithStrictEntityValidation]: Rejects entities with undeclared attributes.
+//   - [WithAllowUnknownEntityTypes]: Allows unknown entity types in schema references
+//     (matches Lean behavior).
+//
+// Example with options:
+//
+//	v, err := validator.New(schema,
+//	    validator.WithMaxAttributeLevel(2),
+//	    validator.WithStrictEntityValidation(),
+//	)
+//
 // # Schema Well-Formedness
 //
 // Creating a Validator validates schema well-formedness:
 //   - Entity types referenced in memberOfTypes must exist
 //   - Entity types in principalTypes/resourceTypes must exist
-//   - No duplicate entity types (handled at parse time)
+//   - No cycles in entity hierarchy
 //
 // Use [WithAllowUnknownEntityTypes] for lenient mode that allows unknown types.
 //
 // # Policy Validation
 //
-// [ValidatePolicies] checks that all policies in a PolicySet are well-typed
+// [Validator.ValidatePolicies] checks that all policies in a PolicySet are well-typed
 // according to a schema. This catches type errors before authorization:
 //
-//	result := validator.ValidatePolicies(schema, policies)
+//	result := v.ValidatePolicies(policies)
 //	if !result.Valid {
 //	    for _, err := range result.Errors {
 //	        fmt.Printf("Policy %s: %s\n", err.PolicyID, err.Message)
 //	    }
 //	}
+//
+// Or use the convenience function:
+//
+//	result := validator.ValidatePolicies(schema, policies)
 //
 // Policy validation includes:
 //   - Type checking of expressions in when/unless clauses
@@ -44,7 +79,7 @@
 //
 // # Entity Validation
 //
-// [ValidateEntities] checks that all entities conform to the schema:
+// [Validator.ValidateEntities] checks that all entities conform to the schema:
 //
 //   - Entity types must be defined in the schema
 //   - Attributes must match declared types
@@ -53,7 +88,7 @@
 //
 // Example:
 //
-//	result := validator.ValidateEntities(schema, entities)
+//	result := v.ValidateEntities(entities)
 //	if !result.Valid {
 //	    for _, err := range result.Errors {
 //	        fmt.Printf("Entity %s: %s\n", err.EntityUID, err.Message)
@@ -65,15 +100,16 @@
 //
 // # Request Validation
 //
-// [ValidateRequest] checks that a request matches the schema:
+// [Validator.ValidateRequest] checks that a request matches the schema:
 //
+//   - Action must be defined in the schema
 //   - Principal type must be valid for the action
 //   - Resource type must be valid for the action
 //   - Context must match the action's declared context type
 //
 // Example:
 //
-//	result := validator.ValidateRequest(schema, request)
+//	result := v.ValidateRequest(request)
 //	if !result.Valid {
 //	    fmt.Printf("Request error: %s\n", result.Error)
 //	}

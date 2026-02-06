@@ -1069,3 +1069,191 @@ func isValidDurationLiteral(s string) bool {
 	}
 	return false
 }
+
+// ============================================================================
+// Type Checking Helpers
+// ============================================================================
+
+// isTypeBoolean returns true if the type is BoolType.
+func isTypeBoolean(t CedarType) bool {
+	_, ok := t.(BoolType)
+	return ok
+}
+
+// isTypeLong returns true if the type is LongType.
+func isTypeLong(t CedarType) bool {
+	_, ok := t.(LongType)
+	return ok
+}
+
+// isTypeString returns true if the type is StringType.
+func isTypeString(t CedarType) bool {
+	_, ok := t.(StringType)
+	return ok
+}
+
+// isTypeEntity returns true if the type is EntityType.
+func isTypeEntity(t CedarType) bool {
+	_, ok := t.(EntityType)
+	return ok
+}
+
+// isTypeSet returns true if the type is SetType.
+func isTypeSet(t CedarType) bool {
+	_, ok := t.(SetType)
+	return ok
+}
+
+// isTypeUnknown returns true if the type is UnknownType.
+func isTypeUnknown(t CedarType) bool {
+	_, ok := t.(UnknownType)
+	return ok
+}
+
+// unifyTypes returns a type that represents both types.
+// If either type is unknown, returns the other.
+// If types match, returns the first.
+// Otherwise returns UnknownType.
+func unifyTypes(t1, t2 CedarType) CedarType {
+	if isTypeUnknown(t1) {
+		return t2
+	}
+	if isTypeUnknown(t2) {
+		return t1
+	}
+	if TypesMatch(t1, t2) {
+		return t1
+	}
+	return UnknownType{}
+}
+
+// typeCat represents a type category for comparison purposes.
+// Types in the same category can be compared with == and !=.
+type typeCat int
+
+const (
+	catUnknown typeCat = iota
+	catBool
+	catLong
+	catString
+	catEntity
+	catSet
+	catRecord
+	catExtDecimal
+	catExtIPAddr
+	catExtDatetime
+	catExtDuration
+)
+
+// typesAreComparable checks if two types can be compared with == or !=.
+// Cedar's type system requires that equality operands have the same base type.
+// However, if either type is unknown or unresolved, we allow the comparison
+// to match Lean's lenient behavior.
+func (ctx *typeContext) typesAreComparable(t1, t2 CedarType) bool {
+	cat1 := ctx.typeCategory(t1)
+	cat2 := ctx.typeCategory(t2)
+
+	// If either type is unknown, comparisons are allowed (lenient)
+	if cat1 == catUnknown || cat2 == catUnknown {
+		return true
+	}
+
+	// Types must be in the same category to be comparable
+	if cat1 != cat2 {
+		return false
+	}
+
+	// For record types, we need additional checks for lub compatibility.
+	// Two records can only be compared if they have a valid least upper bound (lub).
+	// This requires that for closed records, neither has attributes the other lacks.
+	if cat1 == catRecord {
+		r1, ok1 := t1.(RecordType)
+		r2, ok2 := t2.(RecordType)
+		if ok1 && ok2 {
+			return ctx.recordTypesHaveLub(r1, r2)
+		}
+	}
+
+	return true
+}
+
+// recordTypesHaveLub checks if two record types have a valid least upper bound.
+// For records to have a lub:
+// 1. Common attributes must have compatible types
+// 2. For closed records, attributes in one that don't exist in the other cause a lubErr
+func (ctx *typeContext) recordTypesHaveLub(r1, r2 RecordType) bool {
+	// Check all attributes in r1
+	for name, attr1 := range r1.Attributes {
+		if attr2, exists := r2.Attributes[name]; exists {
+			// Common attribute - check types are compatible
+			if !ctx.typesAreComparable(attr1.Type, attr2.Type) {
+				return false
+			}
+		} else {
+			// Attribute in r1 but not in r2
+			// If r2 is closed (not open), this is a lubErr
+			if !r2.OpenRecord {
+				return false
+			}
+		}
+	}
+
+	// Check attributes in r2 that aren't in r1
+	for name := range r2.Attributes {
+		if _, exists := r1.Attributes[name]; !exists {
+			// Attribute in r2 but not in r1
+			// If r1 is closed (not open), this is a lubErr
+			if !r1.OpenRecord {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// typeCategory returns the category of a type for comparison purposes.
+func (ctx *typeContext) typeCategory(t CedarType) typeCat {
+	switch ct := t.(type) {
+	case BoolType:
+		return catBool
+	case LongType:
+		return catLong
+	case StringType:
+		return catString
+	case EntityType:
+		// All entity types are in the entity category, regardless of whether
+		// they're defined in entityTypes. This includes:
+		// - Action entity types (in actionTypes)
+		// - Empty entity type (used for variables with unknown specific type)
+		// - Entity types from action's principalTypes/resourceTypes
+		// - Entity types from attributes
+		// This ensures comparing entities with non-entities (like strings) is an error.
+		return catEntity
+	case AnyEntityType:
+		return catEntity
+	case SetType:
+		return catSet
+	case RecordType:
+		return catRecord
+	case ExtensionType:
+		switch ct.Name {
+		case "decimal":
+			return catExtDecimal
+		case "ipaddr":
+			return catExtIPAddr
+		case "datetime":
+			return catExtDatetime
+		case "duration":
+			return catExtDuration
+		}
+		return catUnknown
+	case UnspecifiedType:
+		// UnspecifiedType is treated as unknown for comparison purposes.
+		// This allows comparisons with unspecified types (they return Bool),
+		// while using unspecified types as conditions is caught separately.
+		return catUnknown
+	default:
+		return catUnknown
+	}
+}

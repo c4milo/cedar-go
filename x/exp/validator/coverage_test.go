@@ -15,6 +15,7 @@
 package validator
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/cedar-policy/cedar-go"
@@ -2048,5 +2049,720 @@ func TestParseJSONTypeCommonTypeEntityRef(t *testing.T) {
 		t.Errorf("Expected EntityType, got %T", ct)
 	} else if et.Name != "User" {
 		t.Errorf("Expected User entity type, got %s", et.Name)
+	}
+}
+
+// TestValidationErrorMethod tests the ValidationError.Error() method
+func TestValidationErrorMethod(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      ValidationError
+		expected string
+	}{
+		{
+			name:     "error with code",
+			err:      ValidationError{Code: ErrUnexpectedType, Message: "expected boolean"},
+			expected: "unexpected_type: expected boolean",
+		},
+		{
+			name:     "error without code",
+			err:      ValidationError{Message: "just a message"},
+			expected: "just a message",
+		},
+		{
+			name:     "error with code and details",
+			err:      ValidationError{Code: ErrAttributeNotFound, Message: "attr not found", Details: map[string]string{"attr": "name"}},
+			expected: "attribute_not_found: attr not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.err.Error()
+			if got != tt.expected {
+				t.Errorf("Error() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestActionContextInAppliesTo tests action context parsing inside appliesTo section
+func TestActionContextInAppliesTo(t *testing.T) {
+	// Context defined inside appliesTo section
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Document": {}},
+		"actions": {
+			"edit": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"],
+					"context": {
+						"type": "Record",
+						"attributes": {
+							"reason": {"type": "String"}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Context should be parsed from appliesTo
+	actionUID := types.NewEntityUID("Action", "edit")
+	info, ok := v.actionTypes[actionUID]
+	if !ok {
+		t.Fatal("Action 'edit' not found")
+	}
+
+	// Should have context attribute from appliesTo
+	if _, ok := info.Context.Attributes["reason"]; !ok {
+		t.Error("Expected context attribute 'reason' from appliesTo")
+	}
+}
+
+// TestScopeTypeInDescendantCheck tests checkScopeTypeIn with descendant checking
+func TestScopeTypeInDescendantCheck(t *testing.T) {
+	// Schema where User is NOT in memberOfTypes of Group
+	schemaJSON := `{
+		"entityTypes": {
+			"User": {},
+			"Group": {},
+			"Org": {"memberOfTypes": ["Org"]}
+		},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Group"]
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy with "principal in Group::..." - User can't be in Group
+	policy := `permit(principal in Group::"admins", action == Action::"view", resource);`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	// Should report impossiblePolicy because User can't be in Group
+	if result.Valid {
+		t.Error("Expected validation errors for impossible principal in Group")
+	}
+}
+
+// TestActionScopeInSetAllInvalid tests validateActionScopeInSet when all actions are invalid
+func TestActionScopeInSetAllInvalid(t *testing.T) {
+	// Schema with actions that have no valid appliesTo
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Document": {}},
+		"actions": {
+			"action1": {},
+			"action2": {}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy with action in [action1, action2] - both have no appliesTo
+	policy := `permit(principal, action in [Action::"action1", Action::"action2"], resource);`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	if result.Valid {
+		t.Error("Expected validation errors for actions with no valid appliesTo")
+	}
+}
+
+// TestExtractEntityTypeFromSet tests extractEntityTypeFromNode with set input
+func TestExtractEntityTypeFromSet(t *testing.T) {
+	schemaJSON := `{
+		"entityTypes": {
+			"User": {"memberOfTypes": ["Group"]},
+			"Group": {}
+		},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Group"]
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy with "principal in [Group::...]"
+	policy := `permit(principal, action == Action::"view", resource) when { principal in [Group::"g1", Group::"g2"] };`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	// Should be valid - User can be in Group via memberOfTypes
+	if !result.Valid {
+		t.Errorf("Expected valid policy, got errors: %v", result.Errors)
+	}
+}
+
+// TestExpectArgsWrongCount tests expectArgs with wrong argument count
+func TestExpectArgsWrongCount(t *testing.T) {
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Document": {}},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"]
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy with extension call with wrong number of arguments
+	// isInRange requires 2 args, here we pass expression that results in wrong types
+	policy := `permit(principal, action == Action::"view", resource) when { ip("1.2.3.4").isInRange(ip("10.0.0.0/8")) };`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	// Should be valid - correct usage of isInRange
+	if !result.Valid {
+		t.Errorf("Unexpected errors: %v", result.Errors)
+	}
+}
+
+// TestInferSetTypeMultipleElements tests inferSetType with multiple elements
+func TestInferSetTypeMultipleElements(t *testing.T) {
+	schemaJSON := `{
+		"entityTypes": {
+			"User": {
+				"shape": {
+					"type": "Record",
+					"attributes": {
+						"tags": {"type": "Set", "element": {"type": "String"}}
+					}
+				}
+			}
+		},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["User"]
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	// Create entity with set containing multiple elements
+	entities := types.EntityMap{
+		types.NewEntityUID("User", "alice"): {
+			Attributes: types.NewRecord(types.RecordMap{
+				"tags": types.NewSet(types.String("a"), types.String("b"), types.String("c")),
+			}),
+		},
+	}
+
+	result := ValidateEntities(s, entities)
+	if !result.Valid {
+		t.Errorf("Expected valid entities, got errors: %v", result.Errors)
+	}
+}
+
+// TestValidateContextUndeclaredStrictRequest tests context validation in strict mode for requests
+func TestValidateContextUndeclaredStrictRequest(t *testing.T) {
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Document": {}},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"],
+					"context": {
+						"type": "Record",
+						"attributes": {
+							"ip": {"type": "String"}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s, WithStrictEntityValidation())
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Request with undeclared context attribute
+	req := cedar.Request{
+		Principal: types.NewEntityUID("User", "alice"),
+		Action:    types.NewEntityUID("Action", "view"),
+		Resource:  types.NewEntityUID("Document", "doc1"),
+		Context: types.NewRecord(types.RecordMap{
+			"ip":         types.String("1.2.3.4"),
+			"undeclared": types.String("extra"),
+		}),
+	}
+
+	result := v.ValidateRequest(req)
+	if result.Valid {
+		t.Error("Expected validation error for undeclared context attribute in strict mode")
+	}
+}
+
+// TestCheckScopeTypeEqWithActionType tests checkScopeTypeEq with action entity types
+func TestCheckScopeTypeEqWithActionType(t *testing.T) {
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Document": {}},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"]
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy referencing action in principal scope (unusual but tests the code path)
+	policy := `permit(principal == User::"alice", action == Action::"view", resource == Document::"doc1");`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	if !result.Valid {
+		t.Errorf("Unexpected errors: %v", result.Errors)
+	}
+}
+
+// TestTypecheckVariableAction tests typecheckVariable for action variable
+func TestTypecheckVariableAction(t *testing.T) {
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Document": {}},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"]
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy that uses action variable in condition
+	policy := `permit(principal, action, resource) when { action == Action::"view" };`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	if !result.Valid {
+		t.Errorf("Unexpected errors: %v", result.Errors)
+	}
+}
+
+// TestParseActionMemberOf tests action memberOf parsing
+func TestParseActionMemberOf(t *testing.T) {
+	// Test action with memberOf relationship
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Document": {}},
+		"actions": {
+			"read": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"]
+				}
+			},
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"]
+				},
+				"memberOf": [{"id": "read"}]
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Check that memberOf was parsed
+	actionUID := types.NewEntityUID("Action", "view")
+	info, ok := v.actionTypes[actionUID]
+	if !ok {
+		t.Fatal("Action 'view' not found")
+	}
+
+	if len(info.MemberOf) != 1 {
+		t.Errorf("Expected 1 memberOf, got %d", len(info.MemberOf))
+	}
+}
+
+// TestCheckScopeTypeInWithDescendant tests checkScopeTypeIn with "in" clause
+// Cedar's Lean implementation requires the entity type in "in" clause to be in allowed types
+func TestCheckScopeTypeInWithDescendant(t *testing.T) {
+	// Schema where User can be in Group via memberOfTypes
+	schemaJSON := `{
+		"entityTypes": {
+			"User": {"memberOfTypes": ["Group"]},
+			"Group": {"memberOfTypes": ["Org"]},
+			"Org": {}
+		},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Org"]
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy with "principal in Org::..." - Org is NOT in principalTypes
+	// Per Lean's implementation, the entity type in "in" clause must be in allowed types
+	policy := `permit(principal in Org::"acme", action == Action::"view", resource);`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	// Should be invalid because Org is not in principalTypes
+	if result.Valid {
+		t.Error("Expected validation error for principal in Org:: when Org is not in principalTypes")
+	}
+	// Check that the error message mentions the issue
+	if len(result.Errors) == 0 {
+		t.Error("Expected at least one error")
+	} else if !strings.Contains(result.Errors[0].Message, "not satisfiable") {
+		t.Errorf("Expected 'not satisfiable' error, got: %v", result.Errors[0].Message)
+	}
+}
+
+// TestIntersectAttributesTypeMismatch tests intersectAttributes with type mismatch
+func TestIntersectAttributesTypeMismatch(t *testing.T) {
+	// Two actions with same attribute name but different types
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Document": {}},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"],
+					"context": {
+						"type": "Record",
+						"attributes": {
+							"value": {"type": "String"}
+						}
+					}
+				}
+			},
+			"edit": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"],
+					"context": {
+						"type": "Record",
+						"attributes": {
+							"value": {"type": "Long"}
+						}
+					}
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy with unscoped action - context intersection should have no common attributes
+	policy := `permit(principal == User::"alice", action, resource == Document::"doc1") when { context.value == "test" };`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	// Should have error because context.value is not available (different types in intersection)
+	if result.Valid {
+		t.Error("Expected validation error for accessing context attribute with mismatched types across actions")
+	}
+}
+
+// TestExpectArgsWrongArgCount tests expectArgs with wrong argument count
+func TestExpectArgsWrongArgCount(t *testing.T) {
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Document": {}},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"]
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy with extension call - testing valid calls
+	policy := `permit(principal, action == Action::"view", resource) when { decimal("1.0").lessThan(decimal("2.0")) };`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	if !result.Valid {
+		t.Errorf("Unexpected errors: %v", result.Errors)
+	}
+}
+
+// TestResolveEntityScopeTypesAll tests resolveEntityScopeTypes with ScopeTypeAll
+func TestResolveEntityScopeTypesAll(t *testing.T) {
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Admin": {}, "Document": {}},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User", "Admin"],
+					"resourceTypes": ["Document"]
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy with unscoped principal - should use all principal types from action
+	policy := `permit(principal, action == Action::"view", resource == Document::"doc1");`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	if !result.Valid {
+		t.Errorf("Unexpected errors: %v", result.Errors)
+	}
+}
+
+// TestCheckEntityTypeKnownAction tests checkEntityTypeKnown with action entity
+func TestCheckEntityTypeKnownAction(t *testing.T) {
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Document": {}},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"]
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy with unknown action entity
+	policy := `permit(principal, action == Action::"view", resource) when { Action::"unknown_action" == action };`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	// Should have error for unknown action entity
+	hasUnknownEntity := false
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "unknownEntity") {
+			hasUnknownEntity = true
+			break
+		}
+	}
+	if !hasUnknownEntity {
+		t.Error("Expected unknownEntity error for undefined action")
+	}
+}
+
+// TestEvaluateConstantOrShortCircuit tests evaluateConstantOr short-circuit paths
+func TestEvaluateConstantOrShortCircuit(t *testing.T) {
+	schemaJSON := `{
+		"entityTypes": {"User": {}, "Document": {}},
+		"actions": {
+			"view": {
+				"appliesTo": {
+					"principalTypes": ["User"],
+					"resourceTypes": ["Document"]
+				}
+			}
+		}
+	}`
+
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
+		t.Fatalf("Failed to parse schema: %v", err)
+	}
+
+	v, err := New(s)
+	if err != nil {
+		t.Fatalf("Failed to create validator: %v", err)
+	}
+
+	// Policy with "unless { true || something }" - short circuits to true, making policy impossible
+	policy := `permit(principal, action == Action::"view", resource) unless { true || false };`
+	ps, err := cedar.NewPolicySetFromBytes("test", []byte(policy))
+	if err != nil {
+		t.Fatalf("Failed to parse policy: %v", err)
+	}
+
+	result := v.ValidatePolicies(ps)
+	// Should detect impossiblePolicy
+	hasImpossible := false
+	for _, e := range result.Errors {
+		if e.Message == "impossiblePolicy" {
+			hasImpossible = true
+			break
+		}
+	}
+	if !hasImpossible {
+		t.Error("Expected impossiblePolicy error for 'unless { true || false }'")
 	}
 }
