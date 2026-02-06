@@ -23,15 +23,14 @@ func TestPolicySetIndexing(t *testing.T) {
 		);`)))
 		ps.Add("policy1", &p)
 
-		// Index should be dirty initially
-		testutil.Equals(t, ps.indexDirty, true)
+		// Index should not be built yet
+		testutil.Equals(t, ps.snap.Load().index == nil, true)
 
 		// Build index
 		ps.BuildIndex()
 
-		// Index should be clean now
-		testutil.Equals(t, ps.indexDirty, false)
-		testutil.Equals(t, ps.index != nil, true)
+		// Index should be built now
+		testutil.Equals(t, ps.snap.Load().index != nil, true)
 	})
 
 	t.Run("IndexInvalidatedOnAdd", func(t *testing.T) {
@@ -43,14 +42,14 @@ func TestPolicySetIndexing(t *testing.T) {
 		ps.Add("policy1", &p1)
 		ps.BuildIndex()
 
-		testutil.Equals(t, ps.indexDirty, false)
+		testutil.Equals(t, ps.snap.Load().index != nil, true)
 
-		// Adding a policy should invalidate the index
+		// Adding a policy creates a new snapshot without an index
 		var p2 Policy
 		testutil.OK(t, p2.UnmarshalCedar([]byte(`permit(principal, action, resource);`)))
 		ps.Add("policy2", &p2)
 
-		testutil.Equals(t, ps.indexDirty, true)
+		testutil.Equals(t, ps.snap.Load().index == nil, true)
 	})
 
 	t.Run("IndexInvalidatedOnRemove", func(t *testing.T) {
@@ -62,12 +61,12 @@ func TestPolicySetIndexing(t *testing.T) {
 		ps.Add("policy1", &p1)
 		ps.BuildIndex()
 
-		testutil.Equals(t, ps.indexDirty, false)
+		testutil.Equals(t, ps.snap.Load().index != nil, true)
 
-		// Removing a policy should invalidate the index
+		// Removing a policy creates a new snapshot without an index
 		ps.Remove("policy1")
 
-		testutil.Equals(t, ps.indexDirty, true)
+		testutil.Equals(t, ps.snap.Load().index == nil, true)
 	})
 
 	t.Run("forRequest_ActionIndex", func(t *testing.T) {

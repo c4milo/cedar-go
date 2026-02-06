@@ -34,7 +34,7 @@ func Authorize(policies PolicyIterator, entities types.EntityGetter, req Request
 	// Use indexed iteration if available and beneficial for faster authorization
 	// Indexing overhead is only worth it for larger policy sets (>50 policies)
 	var policyIter iter.Seq2[PolicyID, *Policy]
-	if ps, ok := policies.(*PolicySet); ok && len(ps.policies) > 50 {
+	if ps, ok := policies.(*PolicySet); ok && len(ps.loadSnapshot().policies) > 50 {
 		policyIter = ps.forRequest(req)
 	} else {
 		policyIter = policies.All()
