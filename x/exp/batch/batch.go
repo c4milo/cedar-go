@@ -337,51 +337,66 @@ func batchCompile(be *batchEvaler) {
 func cloneSub(r types.Value, k types.String, v types.Value) (types.Value, bool) {
 	switch t := r.(type) {
 	case types.EntityUID:
-		if key, ok := eval.ToVariable(t); ok && key == k {
-			return v, true
-		}
+		return cloneSubEntityUID(t, k, v)
 	case types.Record:
-		var newMap types.RecordMap
-		for kk, vv := range t.All() {
-			if vv, delta := cloneSub(vv, k, v); delta && newMap == nil {
-				if newMap == nil {
-					newMap = t.Map()
-				}
-				newMap[kk] = vv
-			}
-		}
-
-		if newMap == nil {
-			return t, false
-		}
-		return types.NewRecord(newMap), true
+		return cloneSubRecord(t, k, v)
 	case types.Set:
-		hasDeltas := false
-
-		// Look for deltas. Unfortunately, due to the indeterminate nature of the set iteration order,
-		// we can't pull the same trick as we do for Records above
-		for vv := range t.All() {
-			if _, delta := cloneSub(vv, k, v); delta {
-				hasDeltas = true
-				break
-			}
-		}
-
-		// If no deltas, just return the input Value
-		if !hasDeltas {
-			return t, false
-		}
-
-		// If there were deltas, build a new Set
-		newSlice := make([]types.Value, 0, t.Len())
-		for vv := range t.All() {
-			vv, _ = cloneSub(vv, k, v)
-			newSlice = append(newSlice, vv)
-		}
-
-		return types.NewSet(newSlice...), true
+		return cloneSubSet(t, k, v)
 	}
 	return r, false
+}
+
+// cloneSubEntityUID handles variable substitution for EntityUID values.
+func cloneSubEntityUID(t types.EntityUID, k types.String, v types.Value) (types.Value, bool) {
+	if key, ok := eval.ToVariable(t); ok && key == k {
+		return v, true
+	}
+	return t, false
+}
+
+// cloneSubRecord handles variable substitution for Record values.
+func cloneSubRecord(t types.Record, k types.String, v types.Value) (types.Value, bool) {
+	var newMap types.RecordMap
+	for kk, vv := range t.All() {
+		if newVV, delta := cloneSub(vv, k, v); delta {
+			if newMap == nil {
+				newMap = t.Map()
+			}
+			newMap[kk] = newVV
+		}
+	}
+
+	if newMap == nil {
+		return t, false
+	}
+	return types.NewRecord(newMap), true
+}
+
+// cloneSubSet handles variable substitution for Set values.
+func cloneSubSet(t types.Set, k types.String, v types.Value) (types.Value, bool) {
+	// Look for deltas first
+	if !setHasDeltas(t, k, v) {
+		return t, false
+	}
+
+	// Build a new Set with substitutions
+	newSlice := make([]types.Value, 0, t.Len())
+	for vv := range t.All() {
+		vv, _ = cloneSub(vv, k, v)
+		newSlice = append(newSlice, vv)
+	}
+
+	return types.NewSet(newSlice...), true
+}
+
+// setHasDeltas checks if any element in the set would change with substitution.
+func setHasDeltas(t types.Set, k types.String, v types.Value) bool {
+	for vv := range t.All() {
+		if _, delta := cloneSub(vv, k, v); delta {
+			return true
+		}
+	}
+	return false
 }
 
 func findVariables(found *mapset.MapSet[types.String], r types.Value) {
