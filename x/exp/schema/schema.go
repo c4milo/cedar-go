@@ -670,6 +670,7 @@ func validateNamespaceIdentifiers(nsName string, ns *ast.JSONNamespace) []string
 	// Validate type references in shapes and contexts
 	errors = append(errors, validateEntityShapeReferences(nsName, ns.EntityTypes)...)
 	errors = append(errors, validateActionContextReferences(nsName, ns.Actions)...)
+	errors = append(errors, validateActionAppliesToTypes(nsName, ns.Actions)...)
 	errors = append(errors, validateCommonTypeReferences(nsName, ns.CommonTypes)...)
 
 	return errors
@@ -731,6 +732,42 @@ func validateActionContextReferences(nsName string, actions map[string]*ast.JSON
 		}
 	}
 	return errors
+}
+
+// validateActionAppliesToTypes validates principalTypes and resourceTypes in action appliesTo.
+// These must be valid Cedar identifiers to ensure round-trip serialization works.
+func validateActionAppliesToTypes(nsName string, actions map[string]*ast.JSONAction) []string {
+	var errors []string
+	for actionName, action := range actions {
+		if action == nil || action.AppliesTo == nil {
+			continue
+		}
+		for _, pt := range action.AppliesTo.PrincipalTypes {
+			if !isValidTypeIdentifier(pt) {
+				errors = append(errors, fmt.Sprintf("action %q has invalid principalType identifier %q", actionName, pt))
+			}
+		}
+		for _, rt := range action.AppliesTo.ResourceTypes {
+			if !isValidTypeIdentifier(rt) {
+				errors = append(errors, fmt.Sprintf("action %q has invalid resourceType identifier %q", actionName, rt))
+			}
+		}
+	}
+	return errors
+}
+
+// isValidTypeIdentifier checks if a type name is a valid Cedar type identifier.
+// Supports fully qualified names like "NS::Type" where each part must be a valid identifier.
+func isValidTypeIdentifier(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, part := range strings.Split(name, "::") {
+		if !isValidCedarIdent(part) {
+			return false
+		}
+	}
+	return true
 }
 
 // validateCommonTypeReferences validates type references in common types.
