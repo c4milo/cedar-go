@@ -20,31 +20,51 @@ func Write(w io.Writer, entities iter.Seq[types.Entity]) error {
 
 	// write clusters (subgraphs)
 	entitiesByType := getEntitiesByEntityType(entities)
-
-	for et, entities := range entitiesByType {
-		if _, err := fmt.Fprintf(w, "\tsubgraph \"cluster_%s\" {\n\t\tlabel=%s\n", et, toDotID(string(et))); err != nil {
-			return err
-		}
-		for _, entity := range entities {
-			if _, err := fmt.Fprintf(w, "\t\t%s [label=%s]\n", toDotID(entity.UID.String()), toDotID(entity.UID.ID.String())); err != nil {
-				return err
-			}
-		}
-		if _, err := fmt.Fprintln(w, "\t}"); err != nil {
-			return err
-		}
+	if err := writeClusters(w, entitiesByType); err != nil {
+		return err
 	}
 
 	// adding edges
+	if err := writeEdges(w, entities); err != nil {
+		return err
+	}
+
+	_, err := fmt.Fprintln(w, "}")
+	return err
+}
+
+// writeClusters writes the subgraph clusters for each entity type.
+func writeClusters(w io.Writer, entitiesByType map[types.EntityType][]types.Entity) error {
+	for et, entities := range entitiesByType {
+		if err := writeCluster(w, et, entities); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeCluster writes a single subgraph cluster for an entity type.
+func writeCluster(w io.Writer, et types.EntityType, entities []types.Entity) error {
+	if _, err := fmt.Fprintf(w, "\tsubgraph \"cluster_%s\" {\n\t\tlabel=%s\n", et, toDotID(string(et))); err != nil {
+		return err
+	}
+	for _, entity := range entities {
+		if _, err := fmt.Fprintf(w, "\t\t%s [label=%s]\n", toDotID(entity.UID.String()), toDotID(entity.UID.ID.String())); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintln(w, "\t}")
+	return err
+}
+
+// writeEdges writes all parent-child relationship edges.
+func writeEdges(w io.Writer, entities iter.Seq[types.Entity]) error {
 	for entity := range entities {
 		for ancestor := range entity.Parents.All() {
 			if _, err := fmt.Fprintf(w, "\t%s -> %s\n", toDotID(entity.UID.String()), toDotID(ancestor.String())); err != nil {
 				return err
 			}
 		}
-	}
-	if _, err := fmt.Fprintln(w, "}"); err != nil {
-		return err
 	}
 	return nil
 }
