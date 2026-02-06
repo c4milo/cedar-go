@@ -5,6 +5,40 @@ import (
 	"strings"
 )
 
+// cedarQuote returns a Cedar-compatible quoted string.
+// Unlike Go's %q which uses Go-specific escapes (\x, \a, etc.),
+// this uses escape sequences the Cedar schema parser understands.
+func cedarQuote(s string) string {
+	var sb strings.Builder
+	sb.WriteByte('"')
+	for _, ch := range s {
+		switch ch {
+		case '\n':
+			sb.WriteString(`\n`)
+		case '\r':
+			sb.WriteString(`\r`)
+		case '\t':
+			sb.WriteString(`\t`)
+		case '\\':
+			sb.WriteString(`\\`)
+		case '\x00':
+			sb.WriteString(`\0`)
+		case '\'':
+			sb.WriteString(`\'`)
+		case '"':
+			sb.WriteString(`\"`)
+		default:
+			if ch < 0x20 || ch >= 0x7F {
+				sb.WriteString(fmt.Sprintf(`\u{%x}`, ch))
+			} else {
+				sb.WriteRune(ch)
+			}
+		}
+	}
+	sb.WriteByte('"')
+	return sb.String()
+}
+
 // ConvertJSON2Human converts a JSON schema to a human-readable AST schema. The conversion process is lossy.
 // Any information related to ordering, formatting, comments, etc... are lost completely.
 func ConvertJSON2Human(js JSONSchema) *Schema {
@@ -51,7 +85,7 @@ func convertJSONNamespace(name string, js *JSONNamespace) *Namespace {
 func convertJSONAnnotations(annotations map[string]string) []*Annotation {
 	var ans []*Annotation
 	for k, v := range annotations {
-		ans = append(ans, &Annotation{Key: &Ident{Value: k}, Value: &String{QuotedVal: fmt.Sprintf("%q", v)}})
+		ans = append(ans, &Annotation{Key: &Ident{Value: k}, Value: &String{QuotedVal: cedarQuote(v)}})
 	}
 	return ans
 }
@@ -108,7 +142,7 @@ func convertJSONEntityTypes(types map[string]*JSONEntity) []Declaration {
 
 		// Convert enum
 		for _, value := range et.Enum {
-			entity.Enum = append(entity.Enum, &String{QuotedVal: fmt.Sprintf("%q", value)})
+			entity.Enum = append(entity.Enum, &String{QuotedVal: cedarQuote(value)})
 		}
 
 		decls = append(decls, entity)
@@ -133,7 +167,7 @@ func convertJSONActions(actions map[string]*JSONAction) []Declaration {
 	decls := make([]Declaration, 0, len(actions))
 	for name, act := range actions {
 		action := &Action{
-			Names: []Name{&String{QuotedVal: fmt.Sprintf("%q", name)}},
+			Names: []Name{&String{QuotedVal: cedarQuote(name)}},
 		}
 
 		// Convert annotations
@@ -158,7 +192,7 @@ func convertJSONMemberOf(members []*JSONMember) []*Ref {
 	refs := make([]*Ref, len(members))
 	for i, m := range members {
 		ref := &Ref{
-			Name: &String{QuotedVal: fmt.Sprintf("%q", m.ID)},
+			Name: &String{QuotedVal: cedarQuote(m.ID)},
 		}
 		if m.Type != "" {
 			parts := strings.Split(m.Type, "::")
@@ -249,7 +283,7 @@ func convertJSONRecordType(js *JSONType) *RecordType {
 
 		rt.Attributes = append(rt.Attributes, &Attribute{
 			Annotations: annotations,
-			Key:         &String{QuotedVal: fmt.Sprintf("%q", name)},
+			Key:         &String{QuotedVal: cedarQuote(name)},
 			IsRequired:  attr.Required,
 			Type: convertJSONType(&JSONType{
 				Type:       attr.Type,
