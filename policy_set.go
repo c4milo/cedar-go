@@ -209,98 +209,139 @@ func (p *PolicySet) ensureIndex() {
 	p.indexDirty = false
 }
 
-// forRequest returns an iterator over policies that could match the request
-func (p *PolicySet) forRequest(req Request) iter.Seq2[PolicyID, *Policy] {
-	p.ensureIndex()
-	idx := p.index
+// candidateSource represents a source of policy candidates for request matching.
+type candidateSource struct {
+	indexed   map[PolicyID]struct{}
+	wildcards map[PolicyID]struct{}
+	size      int
+}
 
-	// Pre-compute keys
-	actionKey := req.Action.String()
-	principalKey := string(req.Principal.Type)
-	resourceKey := string(req.Resource.Type)
-
-	// Get indexed sets
-	actionIndexed := idx.actionIndex[actionKey]
-	principalIndexed := idx.principalTypeIndex[principalKey]
-	resourceIndexed := idx.resourceTypeIndex[resourceKey]
-
-	// Find smallest candidate source
-	type candidateSource struct {
-		indexed   map[PolicyID]struct{}
-		wildcards map[PolicyID]struct{}
-		size      int
+// makeCheckFunc creates a function that checks if a policy ID matches this source.
+func (cs *candidateSource) makeCheckFunc() func(PolicyID) bool {
+	indexed := cs.indexed
+	wildcards := cs.wildcards
+	return func(id PolicyID) bool {
+		if _, ok := wildcards[id]; ok {
+			return true
+		}
+		if indexed != nil {
+			if _, ok := indexed[id]; ok {
+				return true
+			}
+		}
+		return false
 	}
+}
 
-	sources := []candidateSource{
-		{actionIndexed, idx.actionWildcards, len(actionIndexed) + len(idx.actionWildcards)},
-		{principalIndexed, idx.principalTypeWildcards, len(principalIndexed) + len(idx.principalTypeWildcards)},
-		{resourceIndexed, idx.resourceTypeWildcards, len(resourceIndexed) + len(idx.resourceTypeWildcards)},
-	}
-
+// findSmallestSource returns the index of the smallest candidate source.
+func findSmallestSource(sources []candidateSource) int {
 	smallest := 0
 	for i := 1; i < len(sources); i++ {
 		if sources[i].size < sources[smallest].size {
 			smallest = i
 		}
 	}
+	return smallest
+}
 
-	// Build check functions for other sources
+// buildCheckFuncs builds check functions for all sources except the smallest.
+func buildCheckFuncs(sources []candidateSource, smallest int) []func(PolicyID) bool {
 	checks := make([]func(PolicyID) bool, 0, 2)
-	for i, src := range sources {
+	for i := range sources {
 		if i == smallest {
 			continue
 		}
-		indexed := src.indexed
-		wildcards := src.wildcards
-		checks = append(checks, func(id PolicyID) bool {
-			if _, ok := wildcards[id]; ok {
-				return true
-			}
-			if indexed != nil {
-				if _, ok := indexed[id]; ok {
-					return true
-				}
-			}
-			return false
-		})
+		checks = append(checks, sources[i].makeCheckFunc())
+	}
+	return checks
+}
+
+// forRequest returns an iterator over policies that could match the request
+func (p *PolicySet) forRequest(req Request) iter.Seq2[PolicyID, *Policy] {
+	p.ensureIndex()
+	idx := p.index
+
+	// Get indexed sets
+	sources := []candidateSource{
+		{idx.actionIndex[req.Action.String()], idx.actionWildcards, 0},
+		{idx.principalTypeIndex[string(req.Principal.Type)], idx.principalTypeWildcards, 0},
+		{idx.resourceTypeIndex[string(req.Resource.Type)], idx.resourceTypeWildcards, 0},
+	}
+	for i := range sources {
+		sources[i].size = len(sources[i].indexed) + len(sources[i].wildcards)
 	}
 
+	smallest := findSmallestSource(sources)
+	checks := buildCheckFuncs(sources, smallest)
 	smallestSource := sources[smallest]
 
-	return func(yield func(PolicyID, *Policy) bool) {
-		yielded := make(map[PolicyID]struct{})
+	return p.iterateCandidates(smallestSource, checks)
+}
 
-		process := func(id PolicyID) bool {
-			if _, seen := yielded[id]; seen {
-				return true
-			}
-			for _, check := range checks {
-				if !check(id) {
-					return true
-				}
-			}
-			policy := p.policies[id]
-			if policy == nil {
-				return true
-			}
-			yielded[id] = struct{}{}
-			return yield(id, policy)
-		}
+// policyProcessor handles the iteration state for processing policy candidates.
+type policyProcessor struct {
+	policies map[PolicyID]*Policy
+	checks   []func(PolicyID) bool
+	yielded  map[PolicyID]struct{}
+	yield    func(PolicyID, *Policy) bool
+}
 
-		if smallestSource.indexed != nil {
-			for id := range smallestSource.indexed {
-				if !process(id) {
-					return
-				}
-			}
-		}
+// process attempts to yield a policy if it passes all checks.
+// Returns false if iteration should stop.
+func (pp *policyProcessor) process(id PolicyID) bool {
+	if _, seen := pp.yielded[id]; seen {
+		return true
+	}
+	if !pp.passesAllChecks(id) {
+		return true
+	}
+	policy := pp.policies[id]
+	if policy == nil {
+		return true
+	}
+	pp.yielded[id] = struct{}{}
+	return pp.yield(id, policy)
+}
 
-		for id := range smallestSource.wildcards {
-			if !process(id) {
-				return
-			}
+// passesAllChecks returns true if the policy ID passes all check functions.
+func (pp *policyProcessor) passesAllChecks(id PolicyID) bool {
+	for _, check := range pp.checks {
+		if !check(id) {
+			return false
 		}
 	}
+	return true
+}
+
+// iterateCandidates returns an iterator that yields matching policies.
+func (p *PolicySet) iterateCandidates(source candidateSource, checks []func(PolicyID) bool) iter.Seq2[PolicyID, *Policy] {
+	return func(yield func(PolicyID, *Policy) bool) {
+		pp := &policyProcessor{
+			policies: p.policies,
+			checks:   checks,
+			yielded:  make(map[PolicyID]struct{}),
+			yield:    yield,
+		}
+
+		if !iterateSet(source.indexed, pp.process) {
+			return
+		}
+		iterateSet(source.wildcards, pp.process)
+	}
+}
+
+// iterateSet iterates over a set of policy IDs, calling process for each.
+// Returns false if iteration was stopped early.
+func iterateSet(set map[PolicyID]struct{}, process func(PolicyID) bool) bool {
+	if set == nil {
+		return true
+	}
+	for id := range set {
+		if !process(id) {
+			return false
+		}
+	}
+	return true
 }
 
 func indexAction(idx *policyIndex, id PolicyID, scope internalast.IsActionScopeNode) {
