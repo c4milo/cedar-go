@@ -78,38 +78,56 @@ func (p Pattern) MarshalCedar() []byte {
 //		'*'         matches any sequence of non-Separator characters
 //		c           matches character c (c != '*')
 func (p Pattern) Match(arg String) (matched bool) {
-Pattern:
 	for i, comp := range p.comps {
 		lastChunk := i == len(p.comps)-1
 		if comp.Wildcard && comp.Literal == "" {
 			return true
 		}
-		// Look for Match at current position.
-		t, ok := matchChunk(comp.Literal, string(arg))
-		// if we're the last chunk, make sure we've exhausted the name
-		// otherwise we'll give a false result even if we could still Match
-		// using the star
-		if ok && (len(t) == 0 || !lastChunk) {
-			arg = String(t)
+
+		matched, newArg := p.matchComponent(comp, arg, lastChunk)
+		if matched {
+			arg = newArg
 			continue
-		}
-		if comp.Wildcard {
-			// Look for Match skipping i+1 bytes.
-			for i := 0; i < len(arg); i++ {
-				t, ok := matchChunk(comp.Literal, string(arg[i+1:]))
-				if ok {
-					// if we're the last chunk, make sure we exhausted the name
-					if lastChunk && len(t) > 0 {
-						continue
-					}
-					arg = String(t)
-					continue Pattern
-				}
-			}
 		}
 		return false
 	}
 	return len(arg) == 0
+}
+
+// matchComponent attempts to match a single pattern component against the argument.
+// Returns true and the remaining string if matched, false otherwise.
+func (p Pattern) matchComponent(comp patternComponent, arg String, lastChunk bool) (bool, String) {
+	// Look for Match at current position.
+	t, ok := matchChunk(comp.Literal, string(arg))
+	// if we're the last chunk, make sure we've exhausted the name
+	// otherwise we'll give a false result even if we could still Match
+	// using the star
+	if ok && (len(t) == 0 || !lastChunk) {
+		return true, String(t)
+	}
+
+	if comp.Wildcard {
+		// Look for Match skipping i+1 bytes.
+		if matched, remaining := p.matchWildcard(comp.Literal, arg, lastChunk); matched {
+			return true, remaining
+		}
+	}
+	return false, arg
+}
+
+// matchWildcard attempts to match a wildcard pattern by trying all positions.
+func (p Pattern) matchWildcard(literal string, arg String, lastChunk bool) (bool, String) {
+	for i := 0; i < len(arg); i++ {
+		t, ok := matchChunk(literal, string(arg[i+1:]))
+		if ok {
+			// if we're the last chunk, make sure we exhausted the name
+			if lastChunk && len(t) > 0 {
+				continue
+			}
+			return true, String(t)
+		}
+	}
+	return false, arg
 }
 
 // matchChunk checks whether chunk matches the beginning of s.
@@ -154,6 +172,40 @@ func (p Pattern) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// parsePatternComponent parses a single component from the JSON representation.
+func parsePatternComponent(comp any) (any, error) {
+	switch v := comp.(type) {
+	case string:
+		if v != "Wildcard" {
+			return nil, fmt.Errorf(`%w: invalid component string "%v"`, errJSONInvalidPatternComponent, v)
+		}
+		return Wildcard{}, nil
+	case map[string]any:
+		return parsePatternLiteral(v)
+	default:
+		return nil, fmt.Errorf(`%w: unknown component type`, errJSONInvalidPatternComponent)
+	}
+}
+
+// parsePatternLiteral parses a literal component from a JSON map.
+func parsePatternLiteral(v map[string]any) (any, error) {
+	if len(v) != 1 {
+		return nil, fmt.Errorf(`%w: too many keys in literal object`, errJSONInvalidPatternComponent)
+	}
+
+	literal, ok := v["Literal"]
+	if !ok {
+		return nil, fmt.Errorf(`%w: missing "Literal" key in literal object`, errJSONInvalidPatternComponent)
+	}
+
+	literalStr, ok := literal.(string)
+	if !ok {
+		return nil, fmt.Errorf(`%w: invalid "Literal" value "%v"`, errJSONInvalidPatternComponent, literal)
+	}
+
+	return String(literalStr), nil
+}
+
 func (p *Pattern) UnmarshalJSON(b []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	var objs []any
@@ -167,31 +219,11 @@ func (p *Pattern) UnmarshalJSON(b []byte) error {
 
 	var comps []any
 	for _, comp := range objs {
-		switch v := comp.(type) {
-		case string:
-			if v != "Wildcard" {
-				return fmt.Errorf(`%w: invalid component string "%v"`, errJSONInvalidPatternComponent, v)
-			}
-			comps = append(comps, Wildcard{})
-		case map[string]any:
-			if len(v) != 1 {
-				return fmt.Errorf(`%w: too many keys in literal object`, errJSONInvalidPatternComponent)
-			}
-
-			literal, ok := v["Literal"]
-			if !ok {
-				return fmt.Errorf(`%w: missing "Literal" key in literal object`, errJSONInvalidPatternComponent)
-			}
-
-			literalStr, ok := literal.(string)
-			if !ok {
-				return fmt.Errorf(`%w: invalid "Literal" value "%v"`, errJSONInvalidPatternComponent, literal)
-			}
-
-			comps = append(comps, String(literalStr))
-		default:
-			return fmt.Errorf(`%w: unknown component type`, errJSONInvalidPatternComponent)
+		parsed, err := parsePatternComponent(comp)
+		if err != nil {
+			return err
 		}
+		comps = append(comps, parsed)
 	}
 
 	*p = NewPattern(comps...)

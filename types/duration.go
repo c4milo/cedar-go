@@ -40,6 +40,78 @@ func NewDurationFromMillis(ms int64) Duration {
 	return Duration{value: ms}
 }
 
+// durationParseState holds the parsing state for duration strings.
+type durationParseState struct {
+	i        int
+	unitI    int
+	total    int64
+	value    int64
+	hasValue bool
+}
+
+// parseDigit processes a digit character and updates the parse state.
+// Returns an error if overflow occurs.
+func (s *durationParseState) parseDigit(c byte) error {
+	s.value = s.value*10 + int64(c-'0')
+	if s.value > math.MaxInt32 {
+		return fmt.Errorf("%w: overflow", errDuration)
+	}
+	s.hasValue = true
+	s.i++
+	return nil
+}
+
+// parseUnit processes a unit character and updates the parse state.
+// Returns the unit string and any error encountered.
+func (s *durationParseState) parseUnit(str string) (string, error) {
+	if !s.hasValue {
+		return "", fmt.Errorf("%w: unit found without quantity", errDuration)
+	}
+
+	var unit string
+	// Check for "ms" unit
+	if str[s.i] == 'm' && s.i+1 < len(str) && str[s.i+1] == 's' {
+		unit = "ms"
+		s.i++
+	} else {
+		unit = str[s.i : s.i+1]
+	}
+
+	// Validate unit order
+	unitOK := false
+	for !unitOK && s.unitI < len(unitOrder) {
+		if unit == unitOrder[s.unitI] {
+			unitOK = true
+		}
+		s.unitI++
+	}
+
+	if !unitOK {
+		return "", fmt.Errorf("%w: unexpected unit '%s'", errDuration, unit)
+	}
+
+	s.total = s.total + s.value*unitToMillis[unit]
+	s.i++
+	s.hasValue = false
+	s.value = 0
+
+	return unit, nil
+}
+
+// parseNextToken processes the next character in the duration string.
+// Returns an error if the character is invalid.
+func (s *durationParseState) parseNextToken(str string) error {
+	c := str[s.i]
+	if unicode.IsDigit(rune(c)) {
+		return s.parseDigit(c)
+	}
+	if c == 'd' || c == 'h' || c == 'm' || c == 's' {
+		_, err := s.parseUnit(str)
+		return err
+	}
+	return fmt.Errorf("%w: unexpected character %s", errDuration, strconv.QuoteRune(rune(c)))
+}
+
 // ParseDuration parses a Cedar Duration from a string
 //
 // Cedar RFC 80 defines a valid duration string as collapsed sequence
@@ -57,78 +129,32 @@ func ParseDuration(s string) (Duration, error) {
 		return Duration{}, fmt.Errorf("%w: string too short", errDuration)
 	}
 
-	i := 0
-	unitI := 0
+	state := &durationParseState{}
 
 	negative := int64(1)
-	if s[i] == '-' {
+	if s[state.i] == '-' {
 		negative = int64(-1)
-		i++
+		state.i++
 	}
 
-	var (
-		total    int64
-		value    int64
-		unit     string
-		hasValue bool
-	)
-
 	// ([0-9]+)(d|h|m|s|ms) ...
-	for i < len(s) && unitI < len(unitOrder) {
-		if unicode.IsDigit(rune(s[i])) {
-			value = value*10 + int64(s[i]-'0')
-
-			// check overflow
-			if value > math.MaxInt32 {
-				return Duration{}, fmt.Errorf("%w: overflow", errDuration)
-			}
-			hasValue = true
-			i++
-		} else if s[i] == 'd' || s[i] == 'h' || s[i] == 'm' || s[i] == 's' {
-			if !hasValue {
-				return Duration{}, fmt.Errorf("%w: unit found without quantity", errDuration)
-			}
-
-			// is it ms?
-			if s[i] == 'm' && i+1 < len(s) && s[i+1] == 's' {
-				unit = "ms"
-				i++
-			} else {
-				unit = s[i : i+1]
-			}
-
-			unitOK := false
-			for !unitOK && unitI < len(unitOrder) {
-				if unit == unitOrder[unitI] {
-					unitOK = true
-				}
-				unitI++
-			}
-
-			if !unitOK {
-				return Duration{}, fmt.Errorf("%w: unexpected unit '%s'", errDuration, unit)
-			}
-
-			total = total + value*unitToMillis[unit]
-			i++
-			hasValue = false
-			value = 0
-		} else {
-			return Duration{}, fmt.Errorf("%w: unexpected character %s", errDuration, strconv.QuoteRune(rune(s[i])))
+	for state.i < len(s) && state.unitI < len(unitOrder) {
+		if err := state.parseNextToken(s); err != nil {
+			return Duration{}, err
 		}
 	}
 
 	// We didn't have a trailing unit
-	if hasValue {
+	if state.hasValue {
 		return Duration{}, fmt.Errorf("%w: expected unit", errDuration)
 	}
 
 	// We still have characters left, but no more units to assign.
-	if i < len(s) {
+	if state.i < len(s) {
 		return Duration{}, fmt.Errorf("%w: invalid duration", errDuration)
 	}
 
-	return Duration{value: negative * total}, nil
+	return Duration{value: negative * state.total}, nil
 }
 
 // Equal returns true if the input represents the same duration

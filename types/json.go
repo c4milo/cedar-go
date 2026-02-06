@@ -41,8 +41,71 @@ type explicitValue struct {
 	Value Value
 }
 
+// unmarshalExtensionFromJSON attempts to unmarshal an extension value from JSON.
+// Returns the parsed value and true if successful, or zero value and false if not an extension.
+func unmarshalExtensionFromJSON(b []byte) (Value, bool, error) {
+	var res extValueJSON
+	if err := json.Unmarshal(b, &res); err != nil || res.Extn == nil {
+		return nil, false, nil
+	}
+
+	switch res.Extn.Fn {
+	case "ip":
+		val, err := ParseIPAddr(res.Extn.Arg)
+		if err != nil {
+			return nil, true, err
+		}
+		return val, true, nil
+	case "decimal":
+		val, err := ParseDecimal(res.Extn.Arg)
+		if err != nil {
+			return nil, true, err
+		}
+		return val, true, nil
+	case "datetime":
+		val, err := ParseDatetime(res.Extn.Arg)
+		if err != nil {
+			return nil, true, err
+		}
+		return val, true, nil
+	case "duration":
+		val, err := ParseDuration(res.Extn.Arg)
+		if err != nil {
+			return nil, true, err
+		}
+		return val, true, nil
+	default:
+		return nil, true, errJSONInvalidExtn
+	}
+}
+
+// unmarshalPrimitiveFromJSON unmarshals primitive JSON values (string, bool, number).
+func unmarshalPrimitiveFromJSON(b []byte) (Value, error) {
+	var res any
+	dec := json.NewDecoder(bytes.NewBuffer(b))
+	dec.UseNumber()
+	if err := dec.Decode(&res); err != nil {
+		return nil, fmt.Errorf("%w: %w", errJSONDecode, err)
+	}
+
+	switch vv := res.(type) {
+	case string:
+		return String(vv), nil
+	case bool:
+		return Boolean(vv), nil
+	case json.Number:
+		l, err := vv.Int64()
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", errJSONLongOutOfRange, err)
+		}
+		return Long(l), nil
+	default:
+		return nil, errJSONUnsupportedType
+	}
+}
+
 func UnmarshalJSON(b []byte, v *Value) error {
-	// TODO: make this faster if it matters
+	// Try entity UID first
 	{
 		var res EntityUID
 		ptr := &res
@@ -51,44 +114,17 @@ func UnmarshalJSON(b []byte, v *Value) error {
 			return nil
 		}
 	}
-	{
-		var res extValueJSON
-		if err := json.Unmarshal(b, &res); err == nil && res.Extn != nil {
-			switch res.Extn.Fn {
-			case "ip":
-				val, err := ParseIPAddr(res.Extn.Arg)
-				if err != nil {
-					return err
-				}
-				*v = val
-				return nil
-			case "decimal":
-				val, err := ParseDecimal(res.Extn.Arg)
-				if err != nil {
-					return err
-				}
-				*v = val
-				return nil
-			case "datetime":
-				val, err := ParseDatetime(res.Extn.Arg)
-				if err != nil {
-					return err
-				}
-				*v = val
-				return nil
-			case "duration":
-				val, err := ParseDuration(res.Extn.Arg)
-				if err != nil {
-					return err
-				}
-				*v = val
-				return nil
-			default:
-				return errJSONInvalidExtn
-			}
+
+	// Try extension value
+	if val, isExt, err := unmarshalExtensionFromJSON(b); isExt {
+		if err != nil {
+			return err
 		}
+		*v = val
+		return nil
 	}
 
+	// Try compound types (array/object)
 	if len(b) > 0 {
 		switch b[0] {
 		case '[':
@@ -104,62 +140,60 @@ func UnmarshalJSON(b []byte, v *Value) error {
 		}
 	}
 
-	var res any
-	dec := json.NewDecoder(bytes.NewBuffer(b))
-	dec.UseNumber()
-	if err := dec.Decode(&res); err != nil {
-		return fmt.Errorf("%w: %w", errJSONDecode, err)
+	// Try primitives
+	val, err := unmarshalPrimitiveFromJSON(b)
+	if err != nil {
+		return err
 	}
-	switch vv := res.(type) {
-	case string:
-		*v = String(vv)
-	case bool:
-		*v = Boolean(vv)
-	case json.Number:
-		l, err := vv.Int64()
-		if err != nil {
-			return fmt.Errorf("%w: %w", errJSONLongOutOfRange, err)
-		}
-		*v = Long(l)
-	default:
-		return errJSONUnsupportedType
-	}
+	*v = val
 	return nil
+}
+
+// unmarshalExtensionArg extracts the extension argument from JSON bytes.
+func unmarshalExtensionArg(b []byte, extName string) (string, error) {
+	// Check if it's a simple string
+	if len(b) > 0 && b[0] == '"' {
+		var arg string
+		if err := json.Unmarshal(b, &arg); err != nil {
+			return "", errors.Join(errJSONDecode, err)
+		}
+		return arg, nil
+	}
+
+	// Try __extn format first
+	var res extValueJSON
+	if err := json.Unmarshal(b, &res); err != nil {
+		return "", errors.Join(errJSONDecode, err)
+	}
+
+	if res.Extn != nil {
+		if res.Extn.Fn != extName {
+			return "", errJSONExtFnMatch
+		}
+		return res.Extn.Arg, nil
+	}
+
+	// Try bare extn format
+	var res2 extn
+	if err := json.Unmarshal(b, &res2); err != nil {
+		return "", errors.Join(errJSONDecode, err)
+	}
+
+	if res2.Fn == "" {
+		return "", errJSONExtNotFound
+	}
+	if res2.Fn != extName {
+		return "", errJSONExtFnMatch
+	}
+	return res2.Arg, nil
 }
 
 func unmarshalExtensionValue[T any](b []byte, extName string, parse func(string) (T, error)) (T, error) {
 	var zeroT T
-	var arg string
-	if len(b) > 0 && b[0] == '"' {
-		if err := json.Unmarshal(b, &arg); err != nil {
-			return zeroT, errors.Join(errJSONDecode, err)
-		}
-	} else {
-		var res extValueJSON
-		if err := json.Unmarshal(b, &res); err != nil {
-			return zeroT, errors.Join(errJSONDecode, err)
-		}
-		if res.Extn == nil {
-			// If we didn't find an Extn, maybe it's just an extn.
-			var res2 extn
 
-			if err := json.Unmarshal(b, &res2); err != nil {
-				return zeroT, errors.Join(errJSONDecode, err)
-			}
-
-			// We've tried Ext.Fn and Fn, so no good.
-			if res2.Fn == "" {
-				return zeroT, errJSONExtNotFound
-			}
-			if res2.Fn != extName {
-				return zeroT, errJSONExtFnMatch
-			}
-			arg = res2.Arg
-		} else if res.Extn.Fn != extName {
-			return zeroT, errJSONExtFnMatch
-		} else {
-			arg = res.Extn.Arg
-		}
+	arg, err := unmarshalExtensionArg(b, extName)
+	if err != nil {
+		return zeroT, err
 	}
 
 	v, err := parse(arg)
