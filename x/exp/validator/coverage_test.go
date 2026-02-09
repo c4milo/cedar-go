@@ -218,8 +218,8 @@ func TestCedarTypeInterface(t *testing.T) {
 	}
 
 	for _, ct := range types {
-		// Verify isCedarType() doesn't panic (it's a marker method)
-		ct.isCedarType()
+		// Verify it implements CedarType interface
+		var _ CedarType = ct
 
 		// Verify String() returns something
 		s := ct.String()
@@ -1115,38 +1115,7 @@ func TestExtensionTypeComparisons(t *testing.T) {
 	}
 }
 
-// TestParseJSONTypeNil tests parseJSONType with nil input.
-func TestParseJSONTypeNil(t *testing.T) {
-	schemaJSON := `{
-		"entityTypes": {
-			"User": {
-				"shape": {
-					"type": "Record",
-					"attributes": {}
-				}
-			}
-		}
-	}`
-
-	s, err := schema.NewFromJSON([]byte(schemaJSON))
-	if err != nil {
-		t.Fatalf("Failed to parse schema: %v", err)
-	}
-
-	v, err := New(s)
-	if err != nil {
-		t.Fatalf("Failed to create validator: %v", err)
-	}
-
-	// Call parseJSONType with nil - should return empty record
-	result, err := v.parseJSONType(nil)
-	if err != nil {
-		t.Errorf("parseJSONType(nil) returned error: %v", err)
-	}
-	if _, ok := result.(RecordType); !ok {
-		t.Errorf("parseJSONType(nil) returned %T, expected RecordType", result)
-	}
-}
+// Parsing logic is now in the schema package and tested there.
 
 // TestContextMerging tests that top-level context merges with appliesTo context.
 func TestContextMerging(t *testing.T) {

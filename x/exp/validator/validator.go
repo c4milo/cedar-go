@@ -93,28 +93,6 @@ func WithStrictEntityValidation() ValidatorOption {
 	}
 }
 
-// EntityTypeInfo contains schema information about an entity type.
-type EntityTypeInfo struct {
-	// Attributes defined on this entity type
-	Attributes map[string]AttributeType
-	// Types this entity can be a member of
-	MemberOfTypes []types.EntityType
-	// OpenRecord when true allows additional attributes not declared in schema
-	OpenRecord bool
-}
-
-// ActionTypeInfo contains schema information about an action.
-type ActionTypeInfo struct {
-	// Principal types this action applies to
-	PrincipalTypes []types.EntityType
-	// Resource types this action applies to
-	ResourceTypes []types.EntityType
-	// Context type for this action
-	Context RecordType
-	// Actions this action is a member of
-	MemberOf []types.EntityUID
-}
-
 // New creates a new Validator from a schema.
 // Options can be provided to configure the validator behavior.
 //
@@ -128,9 +106,9 @@ func New(s *schema.Schema, opts ...ValidatorOption) (*Validator, error) {
 
 	v := &Validator{
 		schema:            s,
-		entityTypes:       make(map[types.EntityType]*EntityTypeInfo),
-		actionTypes:       make(map[types.EntityUID]*ActionTypeInfo),
-		commonTypes:       make(map[string]CedarType),
+		entityTypes:       s.EntityTypesMap(),
+		actionTypes:       s.ActionTypesMap(),
+		commonTypes:       s.CommonTypesMap(),
 		maxAttributeLevel: 0, // 0 means no limit
 	}
 
@@ -139,34 +117,12 @@ func New(s *schema.Schema, opts ...ValidatorOption) (*Validator, error) {
 		opt(v)
 	}
 
-	if err := v.parseSchema(); err != nil {
-		return nil, fmt.Errorf("failed to parse schema: %w", err)
-	}
-
 	// Validate schema well-formedness (cycles, duplicates, unknown references)
 	if err := v.validateSchemaWellFormedness(); err != nil {
 		return nil, fmt.Errorf("schema validation failed: %w", err)
 	}
 
 	return v, nil
-}
-
-// parseSchema extracts type information from the schema.
-func (v *Validator) parseSchema() error {
-	// Get JSON representation to access schema details
-	jsonBytes, err := v.schema.MarshalJSON()
-	if err != nil {
-		return err
-	}
-
-	// Parse the JSON schema structure
-	// The schema JSON has format:
-	// {
-	//   "entityTypes": { "TypeName": { "shape": {...}, "memberOfTypes": [...] } },
-	//   "actions": { "actionId": { "appliesTo": {...}, "context": {...} } },
-	//   "commonTypes": { "TypeName": {...} }
-	// }
-	return v.parseSchemaJSON(jsonBytes)
 }
 
 // ValidatePolicies validates all policies in a PolicySet against the schema.

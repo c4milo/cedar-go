@@ -341,8 +341,8 @@ func TestIsCedarTypeMethods(t *testing.T) {
 	}
 
 	for _, ct := range types {
-
-		ct.isCedarType()
+		// Verify it implements CedarType
+		var _ CedarType = ct
 		_ = ct.String()
 	}
 }
@@ -584,8 +584,8 @@ func TestUnspecifiedTypeString(t *testing.T) {
 		t.Errorf("UnspecifiedType.String() = %q, want %q", got, "Unspecified")
 	}
 
-	// Also verify it implements isCedarType
-	ut.isCedarType()
+	// Verify it implements CedarType
+	var _ CedarType = ut
 }
 
 // TestInferTypeFromValue tests type inference from Cedar values.
