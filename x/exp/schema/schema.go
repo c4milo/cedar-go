@@ -9,6 +9,7 @@ import (
 
 	"github.com/cedar-policy/cedar-go/internal/schema/ast"
 	"github.com/cedar-policy/cedar-go/internal/schema/parser"
+	"github.com/cedar-policy/cedar-go/types"
 )
 
 // Schema is a description of entities and actions that are allowed for a PolicySet. They can be used to validate policies
@@ -18,6 +19,24 @@ import (
 // Use NewFromJSON or NewFromCedar to create a Schema.
 type Schema struct {
 	jsonSchema ast.JSONSchema
+	// Parsed type info (populated eagerly during construction)
+	entityTypes map[types.EntityType]*EntityTypeInfo
+	actionTypes map[types.EntityUID]*ActionTypeInfo
+	commonTypes map[string]CedarType
+
+	// Precomputed derived data (built once during parse)
+	principals     []types.EntityType                      // deduplicated principal types
+	resources      []types.EntityType                      // deduplicated resource types
+	leafActions    []types.EntityUID                       // actions with appliesTo
+	groupActions   []types.EntityUID                       // action groups (no appliesTo)
+	actionEntities types.EntityMap                         // action hierarchy as entities
+	requestEnvs    []RequestEnv                            // cross-product of valid envs
+	prIndex        map[principalResourceKey][]types.EntityUID // (principal, resource) → actions
+}
+
+type principalResourceKey struct {
+	PrincipalType types.EntityType
+	ResourceType  types.EntityType
 }
 
 // NewFromCedar parses the human-readable schema from src and returns a Schema.
@@ -39,9 +58,11 @@ func NewFromCedar(filename string, src []byte) (*Schema, error) {
 		return nil, err
 	}
 
-	return &Schema{
-		jsonSchema: jsonSchema,
-	}, nil
+	s := &Schema{jsonSchema: jsonSchema}
+	if err := s.parse(); err != nil {
+		return nil, fmt.Errorf("failed to parse schema: %w", err)
+	}
+	return s, nil
 }
 
 // NewFromJSON parses the JSON schema from src and returns a Schema.
@@ -81,9 +102,11 @@ func NewFromJSON(src []byte) (*Schema, error) {
 			return nil, err
 		}
 
-		return &Schema{
-			jsonSchema: jsonSchema,
-		}, nil
+		s := &Schema{jsonSchema: jsonSchema}
+		if err := s.parse(); err != nil {
+			return nil, fmt.Errorf("failed to parse schema: %w", err)
+		}
+		return s, nil
 	}
 
 	// This is a namespace-based schema
@@ -97,9 +120,11 @@ func NewFromJSON(src []byte) (*Schema, error) {
 		return nil, err
 	}
 
-	return &Schema{
-		jsonSchema: jsonSchema,
-	}, nil
+	s := &Schema{jsonSchema: jsonSchema}
+	if err := s.parse(); err != nil {
+		return nil, fmt.Errorf("failed to parse schema: %w", err)
+	}
+	return s, nil
 }
 
 // MarshalCedar serializes the schema into the human readable format.
@@ -314,7 +339,11 @@ func FromFragments(fragments ...*SchemaFragment) (*Schema, error) {
 		return nil, err
 	}
 
-	return &Schema{jsonSchema: merged.jsonSchema}, nil
+	s := &Schema{jsonSchema: merged.jsonSchema}
+	if err := s.parse(); err != nil {
+		return nil, fmt.Errorf("failed to parse schema: %w", err)
+	}
+	return s, nil
 }
 
 // mergeNamespaces merges two JSON namespaces, detecting conflicts.
