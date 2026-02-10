@@ -321,7 +321,7 @@ func TestValidateContextWithNonRecord(t *testing.T) {
 		t.Fatalf("Failed to create validator: %v", err)
 	}
 
-	err = v.validateContext(types.String("not a record"), RecordType{})
+	err = v.validateContext(types.String("not a record"), schema.RecordType{})
 	if err == nil {
 		t.Error("Expected error for non-record context")
 	}

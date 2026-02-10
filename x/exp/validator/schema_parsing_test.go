@@ -731,7 +731,7 @@ func TestExtensionTypesInSchema(t *testing.T) {
 			t.Errorf("Expected attribute %s not found", attrName)
 			continue
 		}
-		extType, ok := attr.Type.(ExtensionType)
+		extType, ok := attr.Type.(schema.ExtensionType)
 		if !ok {
 			t.Errorf("Expected attribute %s to be ExtensionType, got %T", attrName, attr.Type)
 			continue
@@ -781,8 +781,8 @@ func TestSetTypeInSchema(t *testing.T) {
 	if !ok {
 		t.Fatal("tags attribute not found")
 	}
-	if setType, ok := tagsAttr.Type.(SetType); ok {
-		if _, ok := setType.Element.(StringType); !ok {
+	if setType, ok := tagsAttr.Type.(schema.SetType); ok {
+		if _, ok := setType.Element.(schema.StringType); !ok {
 			t.Errorf("Expected tags element to be StringType, got %T", setType.Element)
 		}
 	} else {
@@ -793,8 +793,8 @@ func TestSetTypeInSchema(t *testing.T) {
 	if !ok {
 		t.Fatal("scores attribute not found")
 	}
-	if setType, ok := scoresAttr.Type.(SetType); ok {
-		if _, ok := setType.Element.(LongType); !ok {
+	if setType, ok := scoresAttr.Type.(schema.SetType); ok {
+		if _, ok := setType.Element.(schema.LongType); !ok {
 			t.Errorf("Expected scores element to be LongType, got %T", setType.Element)
 		}
 	} else {

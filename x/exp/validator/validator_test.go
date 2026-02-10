@@ -135,44 +135,44 @@ func TestValidatePolicies(t *testing.T) {
 
 func TestRecordAttributesMatchAdditional(t *testing.T) {
 
-	expected := RecordType{
-		Attributes: map[string]AttributeType{
-			"name":  {Type: StringType{}, Required: true},
-			"email": {Type: StringType{}, Required: false},
+	expected := schema.RecordType{
+		Attributes: map[string]schema.AttributeType{
+			"name":  {Type: schema.StringType{}, Required: true},
+			"email": {Type: schema.StringType{}, Required: false},
 		},
 	}
-	actual := RecordType{
-		Attributes: map[string]AttributeType{
-			"name": {Type: StringType{}, Required: true},
+	actual := schema.RecordType{
+		Attributes: map[string]schema.AttributeType{
+			"name": {Type: schema.StringType{}, Required: true},
 		},
 	}
-	if !TypesMatch(expected, actual) {
+	if !schema.TypesMatch(expected, actual) {
 		t.Error("Expected match when optional attribute is missing")
 	}
 
-	expected2 := RecordType{
-		Attributes: map[string]AttributeType{
-			"count": {Type: LongType{}, Required: true},
+	expected2 := schema.RecordType{
+		Attributes: map[string]schema.AttributeType{
+			"count": {Type: schema.LongType{}, Required: true},
 		},
 	}
-	actual2 := RecordType{
-		Attributes: map[string]AttributeType{
-			"count": {Type: StringType{}, Required: true},
+	actual2 := schema.RecordType{
+		Attributes: map[string]schema.AttributeType{
+			"count": {Type: schema.StringType{}, Required: true},
 		},
 	}
-	if TypesMatch(expected2, actual2) {
+	if schema.TypesMatch(expected2, actual2) {
 		t.Error("Expected no match when attribute types differ")
 	}
 
-	expected3 := RecordType{
-		Attributes: map[string]AttributeType{
-			"required": {Type: StringType{}, Required: true},
+	expected3 := schema.RecordType{
+		Attributes: map[string]schema.AttributeType{
+			"required": {Type: schema.StringType{}, Required: true},
 		},
 	}
-	actual3 := RecordType{
-		Attributes: map[string]AttributeType{},
+	actual3 := schema.RecordType{
+		Attributes: map[string]schema.AttributeType{},
 	}
-	if TypesMatch(expected3, actual3) {
+	if schema.TypesMatch(expected3, actual3) {
 		t.Error("Expected no match when required attribute is missing")
 	}
 }
@@ -971,12 +971,12 @@ func TestEntityTypeReference(t *testing.T) {
 	if !ok {
 		t.Fatal("manager attribute not found")
 	}
-	if entityType, ok := managerAttr.Type.(EntityType); ok {
+	if entityType, ok := managerAttr.Type.(schema.EntityCedarType); ok {
 		if entityType.Name != "User" {
 			t.Errorf("Expected manager to reference User, got %s", entityType.Name)
 		}
 	} else {
-		t.Errorf("Expected manager to be EntityType, got %T", managerAttr.Type)
+		t.Errorf("Expected manager to be EntityCedarType, got %T", managerAttr.Type)
 	}
 }
 
@@ -1232,7 +1232,7 @@ func TestMalformedEntityTypes(t *testing.T) {
 	}
 
 	// Test with empty principal types
-	emptyPrincipalInfo := &ActionTypeInfo{
+	emptyPrincipalInfo := &schema.ActionTypeInfo{
 		PrincipalTypes: []types.EntityType{},
 		ResourceTypes:  []types.EntityType{"Document"},
 	}
@@ -1241,7 +1241,7 @@ func TestMalformedEntityTypes(t *testing.T) {
 	}
 
 	// Test with empty resource types
-	emptyResourceInfo := &ActionTypeInfo{
+	emptyResourceInfo := &schema.ActionTypeInfo{
 		PrincipalTypes: []types.EntityType{"User"},
 		ResourceTypes:  []types.EntityType{},
 	}
@@ -1250,7 +1250,7 @@ func TestMalformedEntityTypes(t *testing.T) {
 	}
 
 	// Test with malformed types (Namespace::)
-	malformedInfo := &ActionTypeInfo{
+	malformedInfo := &schema.ActionTypeInfo{
 		PrincipalTypes: []types.EntityType{"BadNs::"},
 		ResourceTypes:  []types.EntityType{"BadNs::"},
 	}
@@ -1259,7 +1259,7 @@ func TestMalformedEntityTypes(t *testing.T) {
 	}
 
 	// Test with mixed types (some malformed, some valid)
-	mixedInfo := &ActionTypeInfo{
+	mixedInfo := &schema.ActionTypeInfo{
 		PrincipalTypes: []types.EntityType{"BadNs::", "User"},
 		ResourceTypes:  []types.EntityType{"Document"},
 	}
@@ -2681,14 +2681,14 @@ func TestExtensionTypeInSchema(t *testing.T) {
 	checkExtensionAttribute(t, userInfo, "ipAddress", "ipaddr")
 }
 
-func checkExtensionAttribute(t *testing.T, info *EntityTypeInfo, attrName, extName string) {
+func checkExtensionAttribute(t *testing.T, info *schema.EntityTypeInfo, attrName, extName string) {
 	t.Helper()
 	attr, ok := info.Attributes[attrName]
 	if !ok {
 		t.Errorf("Expected %s attribute", attrName)
 		return
 	}
-	ext, ok := attr.Type.(ExtensionType)
+	ext, ok := attr.Type.(schema.ExtensionType)
 	if !ok || ext.Name != extName {
 		t.Errorf("Expected Extension type with name %q, got: %T %v", extName, attr.Type, attr.Type)
 	}
@@ -2921,13 +2921,13 @@ func TestParseSetTypeNilElement(t *testing.T) {
 		t.Fatal("tags attribute not found")
 	}
 
-	setType, ok := tagsAttr.Type.(SetType)
+	setType, ok := tagsAttr.Type.(schema.SetType)
 	if !ok {
 		t.Fatalf("Expected SetType, got %T", tagsAttr.Type)
 	}
 
 	// When element is nil, it should be UnknownType
-	if _, ok := setType.Element.(UnknownType); !ok {
+	if _, ok := setType.Element.(schema.UnknownType); !ok {
 		t.Errorf("Expected UnknownType element for Set without element spec, got %T", setType.Element)
 	}
 }

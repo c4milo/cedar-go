@@ -27,27 +27,27 @@ import (
 func TestTypesMatch(t *testing.T) {
 	tests := []struct {
 		name     string
-		expected CedarType
-		actual   CedarType
+		expected schema.CedarType
+		actual   schema.CedarType
 		want     bool
 	}{
-		{"bool match", BoolType{}, BoolType{}, true},
-		{"long match", LongType{}, LongType{}, true},
-		{"string match", StringType{}, StringType{}, true},
-		{"bool vs long", BoolType{}, LongType{}, false},
-		{"entity match", EntityType{Name: "User"}, EntityType{Name: "User"}, true},
-		{"entity mismatch", EntityType{Name: "User"}, EntityType{Name: "Admin"}, false},
-		{"set match", SetType{Element: StringType{}}, SetType{Element: StringType{}}, true},
-		{"extension match", ExtensionType{Name: "decimal"}, ExtensionType{Name: "decimal"}, true},
-		{"extension mismatch", ExtensionType{Name: "decimal"}, ExtensionType{Name: "ipaddr"}, false},
-		{"unknown expected matches anything", UnknownType{}, BoolType{}, true},
-		{"unknown actual matches anything", StringType{}, UnknownType{}, false},
-		{"any entity matches entity", AnyEntityType{}, EntityType{Name: "User"}, true},
+		{"bool match", schema.BoolType{}, schema.BoolType{}, true},
+		{"long match", schema.LongType{}, schema.LongType{}, true},
+		{"string match", schema.StringType{}, schema.StringType{}, true},
+		{"bool vs long", schema.BoolType{}, schema.LongType{}, false},
+		{"entity match", schema.EntityCedarType{Name: "User"}, schema.EntityCedarType{Name: "User"}, true},
+		{"entity mismatch", schema.EntityCedarType{Name: "User"}, schema.EntityCedarType{Name: "Admin"}, false},
+		{"set match", schema.SetType{Element: schema.StringType{}}, schema.SetType{Element: schema.StringType{}}, true},
+		{"extension match", schema.ExtensionType{Name: "decimal"}, schema.ExtensionType{Name: "decimal"}, true},
+		{"extension mismatch", schema.ExtensionType{Name: "decimal"}, schema.ExtensionType{Name: "ipaddr"}, false},
+		{"unknown expected matches anything", schema.UnknownType{}, schema.BoolType{}, true},
+		{"unknown actual matches anything", schema.StringType{}, schema.UnknownType{}, false},
+		{"any entity matches entity", schema.AnyEntityType{}, schema.EntityCedarType{Name: "User"}, true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := TypesMatch(tc.expected, tc.actual)
+			got := schema.TypesMatch(tc.expected, tc.actual)
 			if got != tc.want {
 				t.Errorf("TypesMatch(%v, %v) = %v, want %v", tc.expected, tc.actual, got, tc.want)
 			}
@@ -57,17 +57,17 @@ func TestTypesMatch(t *testing.T) {
 
 func TestCedarTypeStrings(t *testing.T) {
 	tests := []struct {
-		typ  CedarType
+		typ  schema.CedarType
 		want string
 	}{
-		{BoolType{}, "Bool"},
-		{LongType{}, "Long"},
-		{StringType{}, "String"},
-		{EntityType{Name: "User"}, "Entity<User>"},
-		{SetType{Element: StringType{}}, "Set<String>"},
-		{ExtensionType{Name: "decimal"}, "decimal"},
-		{UnknownType{}, "Unknown"},
-		{AnyEntityType{}, "Entity"},
+		{schema.BoolType{}, "Bool"},
+		{schema.LongType{}, "Long"},
+		{schema.StringType{}, "String"},
+		{schema.EntityCedarType{Name: "User"}, "Entity<User>"},
+		{schema.SetType{Element: schema.StringType{}}, "Set<String>"},
+		{schema.ExtensionType{Name: "decimal"}, "decimal"},
+		{schema.UnknownType{}, "Unknown"},
+		{schema.AnyEntityType{}, "Entity"},
 	}
 
 	for _, tc := range tests {
@@ -81,9 +81,9 @@ func TestCedarTypeStrings(t *testing.T) {
 }
 
 func TestRecordTypeString(t *testing.T) {
-	rt := RecordType{
-		Attributes: map[string]AttributeType{
-			"name": {Type: StringType{}, Required: true},
+	rt := schema.RecordType{
+		Attributes: map[string]schema.AttributeType{
+			"name": {Type: schema.StringType{}, Required: true},
 		},
 	}
 	got := rt.String()
@@ -95,32 +95,32 @@ func TestRecordTypeString(t *testing.T) {
 func TestTypesMatchAdditional(t *testing.T) {
 	tests := []struct {
 		name     string
-		expected CedarType
-		actual   CedarType
+		expected schema.CedarType
+		actual   schema.CedarType
 		want     bool
 	}{
 
-		{"entity expected, any entity actual", EntityType{Name: "User"}, AnyEntityType{}, true},
-		{"entity expected, non-entity actual", EntityType{Name: "User"}, StringType{}, false},
+		{"entity expected, any entity actual", schema.EntityCedarType{Name: "User"}, schema.AnyEntityType{}, true},
+		{"entity expected, non-entity actual", schema.EntityCedarType{Name: "User"}, schema.StringType{}, false},
 
-		{"any entity expected, entity actual", AnyEntityType{}, EntityType{Name: "User"}, true},
-		{"any entity expected, any entity actual", AnyEntityType{}, AnyEntityType{}, true},
-		{"any entity expected, non-entity actual", AnyEntityType{}, StringType{}, false},
-		{"any entity expected, long actual", AnyEntityType{}, LongType{}, false},
+		{"any entity expected, entity actual", schema.AnyEntityType{}, schema.EntityCedarType{Name: "User"}, true},
+		{"any entity expected, any entity actual", schema.AnyEntityType{}, schema.AnyEntityType{}, true},
+		{"any entity expected, non-entity actual", schema.AnyEntityType{}, schema.StringType{}, false},
+		{"any entity expected, long actual", schema.AnyEntityType{}, schema.LongType{}, false},
 
-		{"set mismatch element", SetType{Element: StringType{}}, SetType{Element: LongType{}}, false},
-		{"set expected, non-set actual", SetType{Element: StringType{}}, LongType{}, false},
+		{"set mismatch element", schema.SetType{Element: schema.StringType{}}, schema.SetType{Element: schema.LongType{}}, false},
+		{"set expected, non-set actual", schema.SetType{Element: schema.StringType{}}, schema.LongType{}, false},
 
-		{"record expected, non-record actual", RecordType{}, StringType{}, false},
+		{"record expected, non-record actual", schema.RecordType{}, schema.StringType{}, false},
 
-		{"extension expected, non-extension actual", ExtensionType{Name: "decimal"}, StringType{}, false},
+		{"extension expected, non-extension actual", schema.ExtensionType{Name: "decimal"}, schema.StringType{}, false},
 
-		{"default type", RecordType{}, RecordType{}, true},
+		{"default type", schema.RecordType{}, schema.RecordType{}, true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := TypesMatch(tc.expected, tc.actual)
+			got := schema.TypesMatch(tc.expected, tc.actual)
 			if got != tc.want {
 				t.Errorf("TypesMatch(%v, %v) = %v, want %v", tc.expected, tc.actual, got, tc.want)
 			}
@@ -172,7 +172,7 @@ func TestInferTypeWithAllExtensions(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			inferred := v.inferType(tc.value)
-			ext, ok := inferred.(ExtensionType)
+			ext, ok := inferred.(schema.ExtensionType)
 			if !ok {
 				t.Errorf("Expected ExtensionType, got %T", inferred)
 				return
@@ -206,11 +206,11 @@ func TestInferSetTypeEdgeCases(t *testing.T) {
 
 	emptySet := types.NewSet()
 	inferred := v.inferType(emptySet)
-	setType, ok := inferred.(SetType)
+	setType, ok := inferred.(schema.SetType)
 	if !ok {
 		t.Fatalf("Expected SetType, got %T", inferred)
 	}
-	_, isUnknown := setType.Element.(UnknownType)
+	_, isUnknown := setType.Element.(schema.UnknownType)
 	if !isUnknown {
 		t.Errorf("Expected UnknownType element for empty set, got %T", setType.Element)
 	}
@@ -328,21 +328,21 @@ func TestInferTypeUnknown(t *testing.T) {
 
 func TestIsCedarTypeMethods(t *testing.T) {
 
-	types := []CedarType{
-		BoolType{},
-		LongType{},
-		StringType{},
-		EntityType{Name: "User"},
-		SetType{Element: StringType{}},
-		RecordType{},
-		ExtensionType{Name: "decimal"},
-		AnyEntityType{},
-		UnknownType{},
+	types := []schema.CedarType{
+		schema.BoolType{},
+		schema.LongType{},
+		schema.StringType{},
+		schema.EntityCedarType{Name: "User"},
+		schema.SetType{Element: schema.StringType{}},
+		schema.RecordType{},
+		schema.ExtensionType{Name: "decimal"},
+		schema.AnyEntityType{},
+		schema.UnknownType{},
 	}
 
 	for _, ct := range types {
 		// Verify it implements CedarType
-		var _ CedarType = ct
+		var _ schema.CedarType = ct
 		_ = ct.String()
 	}
 }
@@ -504,7 +504,7 @@ func TestNestedRecordTypes(t *testing.T) {
 		t.Fatal("address attribute not found")
 	}
 
-	recordType, ok := addressAttr.Type.(RecordType)
+	recordType, ok := addressAttr.Type.(schema.RecordType)
 	if !ok {
 		t.Fatalf("Expected address to be RecordType, got %T", addressAttr.Type)
 	}
@@ -524,7 +524,7 @@ func TestNestedRecordTypes(t *testing.T) {
 func TestTypePredicateMethods(t *testing.T) {
 	tests := []struct {
 		name      string
-		typ       CedarType
+		typ       schema.CedarType
 		isBoolean bool
 		isLong    bool
 		isString  bool
@@ -533,16 +533,16 @@ func TestTypePredicateMethods(t *testing.T) {
 		isRecord  bool
 		isUnknown bool
 	}{
-		{"BoolType", BoolType{}, true, false, false, false, false, false, false},
-		{"LongType", LongType{}, false, true, false, false, false, false, false},
-		{"StringType", StringType{}, false, false, true, false, false, false, false},
-		{"EntityType", EntityType{Name: "User"}, false, false, false, true, false, false, false},
-		{"SetType", SetType{Element: StringType{}}, false, false, false, false, true, false, false},
-		{"RecordType", RecordType{}, false, false, false, false, false, true, false},
-		{"ExtensionType", ExtensionType{Name: "decimal"}, false, false, false, false, false, false, false},
-		{"AnyEntityType", AnyEntityType{}, false, false, false, true, false, false, false},
-		{"UnknownType", UnknownType{}, false, false, false, false, false, false, true},
-		{"UnspecifiedType", UnspecifiedType{}, false, false, false, false, false, false, true}, // Treated as unknown
+		{"BoolType", schema.BoolType{}, true, false, false, false, false, false, false},
+		{"LongType", schema.LongType{}, false, true, false, false, false, false, false},
+		{"StringType", schema.StringType{}, false, false, true, false, false, false, false},
+		{"EntityType", schema.EntityCedarType{Name: "User"}, false, false, false, true, false, false, false},
+		{"SetType", schema.SetType{Element: schema.StringType{}}, false, false, false, false, true, false, false},
+		{"RecordType", schema.RecordType{}, false, false, false, false, false, true, false},
+		{"ExtensionType", schema.ExtensionType{Name: "decimal"}, false, false, false, false, false, false, false},
+		{"AnyEntityType", schema.AnyEntityType{}, false, false, false, true, false, false, false},
+		{"UnknownType", schema.UnknownType{}, false, false, false, false, false, false, true},
+		{"UnspecifiedType", schema.UnspecifiedType{}, false, false, false, false, false, false, true}, // Treated as unknown
 	}
 
 	for _, tc := range tests {
@@ -552,7 +552,7 @@ func TestTypePredicateMethods(t *testing.T) {
 	}
 }
 
-func checkTypePredicates(t *testing.T, name string, typ CedarType, isBoolean, isLong, isString, isEntity, isSet, isRecord, isUnknown bool) {
+func checkTypePredicates(t *testing.T, name string, typ schema.CedarType, isBoolean, isLong, isString, isEntity, isSet, isRecord, isUnknown bool) {
 	t.Helper()
 	if got := typ.IsBoolean(); got != isBoolean {
 		t.Errorf("%s.IsBoolean() = %v, want %v", name, got, isBoolean)
@@ -579,13 +579,13 @@ func checkTypePredicates(t *testing.T, name string, typ CedarType, isBoolean, is
 
 // TestUnspecifiedTypeString tests the String() method for UnspecifiedType
 func TestUnspecifiedTypeString(t *testing.T) {
-	ut := UnspecifiedType{}
+	ut := schema.UnspecifiedType{}
 	if got := ut.String(); got != "Unspecified" {
 		t.Errorf("UnspecifiedType.String() = %q, want %q", got, "Unspecified")
 	}
 
 	// Verify it implements CedarType
-	var _ CedarType = ut
+	var _ schema.CedarType = ut
 }
 
 // TestInferTypeFromValue tests type inference from Cedar values.

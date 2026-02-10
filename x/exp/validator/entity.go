@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/cedar-policy/cedar-go/types"
+	"github.com/cedar-policy/cedar-go/x/exp/schema"
 )
 
 // validateEntity validates a single entity.
@@ -46,7 +47,7 @@ func (v *Validator) handleUnknownEntityType(uid types.EntityUID) []EntityError {
 }
 
 // validateEntityAttributes validates all declared attributes of an entity.
-func (v *Validator) validateEntityAttributes(uid types.EntityUID, entity types.Entity, info *EntityTypeInfo) []EntityError {
+func (v *Validator) validateEntityAttributes(uid types.EntityUID, entity types.Entity, info *schema.EntityTypeInfo) []EntityError {
 	var errs []EntityError
 	for attrName, attrType := range info.Attributes {
 		if err := v.validateEntityAttribute(uid, entity, attrName, attrType); err != nil {
@@ -57,7 +58,7 @@ func (v *Validator) validateEntityAttributes(uid types.EntityUID, entity types.E
 }
 
 // validateEntityAttribute validates a single attribute of an entity.
-func (v *Validator) validateEntityAttribute(uid types.EntityUID, entity types.Entity, attrName string, attrType AttributeType) *EntityError {
+func (v *Validator) validateEntityAttribute(uid types.EntityUID, entity types.Entity, attrName string, attrType schema.AttributeType) *EntityError {
 	attrVal, exists := entity.Attributes.Get(types.String(attrName))
 	if !exists {
 		if attrType.Required {
@@ -72,7 +73,7 @@ func (v *Validator) validateEntityAttribute(uid types.EntityUID, entity types.En
 }
 
 // validateUndeclaredAttributes checks for undeclared attributes in strict mode.
-func (v *Validator) validateUndeclaredAttributes(uid types.EntityUID, entity types.Entity, info *EntityTypeInfo) []EntityError {
+func (v *Validator) validateUndeclaredAttributes(uid types.EntityUID, entity types.Entity, info *schema.EntityTypeInfo) []EntityError {
 	if !v.strictEntityValidation || info.OpenRecord {
 		return nil
 	}
@@ -89,7 +90,7 @@ func (v *Validator) validateUndeclaredAttributes(uid types.EntityUID, entity typ
 }
 
 // validateParentRelationships validates that parent relationships are allowed.
-func (v *Validator) validateParentRelationships(uid types.EntityUID, entity types.Entity, info *EntityTypeInfo) []EntityError {
+func (v *Validator) validateParentRelationships(uid types.EntityUID, entity types.Entity, info *schema.EntityTypeInfo) []EntityError {
 	var errs []EntityError
 	for parent := range entity.Parents.All() {
 		if !v.typeInList(parent.Type, info.MemberOfTypes) {
@@ -103,7 +104,7 @@ func (v *Validator) validateParentRelationships(uid types.EntityUID, entity type
 }
 
 // validateContext validates context against an expected record type.
-func (v *Validator) validateContext(context types.Value, expected RecordType) error {
+func (v *Validator) validateContext(context types.Value, expected schema.RecordType) error {
 	rec, ok := context.(types.Record)
 	if !ok {
 		return fmt.Errorf("context must be a record, got %T", context)
@@ -116,7 +117,7 @@ func (v *Validator) validateContext(context types.Value, expected RecordType) er
 }
 
 // validateContextAttributes validates all declared context attributes.
-func (v *Validator) validateContextAttributes(rec types.Record, expected RecordType) error {
+func (v *Validator) validateContextAttributes(rec types.Record, expected schema.RecordType) error {
 	for attrName, attrType := range expected.Attributes {
 		if err := v.validateContextAttribute(rec, attrName, attrType); err != nil {
 			return err
@@ -126,7 +127,7 @@ func (v *Validator) validateContextAttributes(rec types.Record, expected RecordT
 }
 
 // validateContextAttribute validates a single context attribute.
-func (v *Validator) validateContextAttribute(rec types.Record, attrName string, attrType AttributeType) error {
+func (v *Validator) validateContextAttribute(rec types.Record, attrName string, attrType schema.AttributeType) error {
 	val, exists := rec.Get(types.String(attrName))
 	if !exists {
 		if attrType.Required {
@@ -141,7 +142,7 @@ func (v *Validator) validateContextAttribute(rec types.Record, attrName string, 
 }
 
 // validateContextUndeclaredAttributes checks for undeclared context attributes in strict mode.
-func (v *Validator) validateContextUndeclaredAttributes(rec types.Record, expected RecordType) error {
+func (v *Validator) validateContextUndeclaredAttributes(rec types.Record, expected schema.RecordType) error {
 	if !v.strictEntityValidation || expected.OpenRecord {
 		return nil
 	}
@@ -154,59 +155,59 @@ func (v *Validator) validateContextUndeclaredAttributes(rec types.Record, expect
 }
 
 // validateValue validates a value against an expected type.
-func (v *Validator) validateValue(val types.Value, expected CedarType) error {
+func (v *Validator) validateValue(val types.Value, expected schema.CedarType) error {
 	actual := v.inferType(val)
-	if !TypesMatch(expected, actual) {
+	if !schema.TypesMatch(expected, actual) {
 		return fmt.Errorf("expected %s, got %s", expected, actual)
 	}
 	return nil
 }
 
 // inferType infers the Cedar type from a value.
-func (v *Validator) inferType(val types.Value) CedarType {
+func (v *Validator) inferType(val types.Value) schema.CedarType {
 	switch typedVal := val.(type) {
 	case types.Boolean:
-		return BoolType{}
+		return schema.BoolType{}
 	case types.Long:
-		return LongType{}
+		return schema.LongType{}
 	case types.String:
-		return StringType{}
+		return schema.StringType{}
 	case types.EntityUID:
-		return EntityType{Name: typedVal.Type}
+		return schema.EntityCedarType{Name: typedVal.Type}
 	case types.Set:
 		return v.inferSetType(typedVal)
 	case types.Record:
 		return v.inferRecordType(typedVal)
 	case types.Decimal:
-		return ExtensionType{Name: "decimal"}
+		return schema.ExtensionType{Name: "decimal"}
 	case types.IPAddr:
-		return ExtensionType{Name: "ipaddr"}
+		return schema.ExtensionType{Name: "ipaddr"}
 	case types.Datetime:
-		return ExtensionType{Name: "datetime"}
+		return schema.ExtensionType{Name: "datetime"}
 	case types.Duration:
-		return ExtensionType{Name: "duration"}
+		return schema.ExtensionType{Name: "duration"}
 	default:
-		return UnknownType{}
+		return schema.UnknownType{}
 	}
 }
 
 // inferSetType infers the type of a Set value.
-func (v *Validator) inferSetType(s types.Set) CedarType {
+func (v *Validator) inferSetType(s types.Set) schema.CedarType {
 	if s.Len() == 0 {
-		return SetType{Element: UnknownType{}}
+		return schema.SetType{Element: schema.UnknownType{}}
 	}
 	// Infer element type from first element
 	for elem := range s.All() {
-		return SetType{Element: v.inferType(elem)}
+		return schema.SetType{Element: v.inferType(elem)}
 	}
-	return SetType{Element: UnknownType{}}
+	return schema.SetType{Element: schema.UnknownType{}}
 }
 
 // inferRecordType infers the type of a Record value.
-func (v *Validator) inferRecordType(r types.Record) CedarType {
-	attrs := make(map[string]AttributeType)
+func (v *Validator) inferRecordType(r types.Record) schema.CedarType {
+	attrs := make(map[string]schema.AttributeType)
 	for k, rv := range r.All() {
-		attrs[string(k)] = AttributeType{Type: v.inferType(rv), Required: true}
+		attrs[string(k)] = schema.AttributeType{Type: v.inferType(rv), Required: true}
 	}
-	return RecordType{Attributes: attrs}
+	return schema.RecordType{Attributes: attrs}
 }

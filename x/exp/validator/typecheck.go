@@ -21,6 +21,7 @@ import (
 
 	"github.com/cedar-policy/cedar-go/types"
 	"github.com/cedar-policy/cedar-go/x/exp/ast"
+	"github.com/cedar-policy/cedar-go/x/exp/schema"
 )
 
 // typeContext holds the type environment during type-checking
@@ -29,7 +30,7 @@ type typeContext struct {
 	principalTypes []types.EntityType // Possible types for principal
 	resourceTypes  []types.EntityType // Possible types for resource
 	actionUID      *types.EntityUID   // Specific action (if known)
-	contextType    RecordType         // Context type for the effective actions
+	contextType    schema.RecordType  // Context type for the effective actions
 	errors         []string
 	currentLevel   int // Current attribute dereference level
 }
@@ -60,7 +61,7 @@ func (v *Validator) typecheckPolicy(p *ast.Policy) []string {
 		// (e.g., action scope is 'all' so context type is unknown).
 		// However, UnspecifiedType (attribute with no type in schema) is NOT allowed
 		// as a condition - this is a schema error that should be reported.
-		if _, isUnspecified := inferredType.(UnspecifiedType); isUnspecified {
+		if _, isUnspecified := inferredType.(schema.UnspecifiedType); isUnspecified {
 			ctx.errors = append(ctx.errors,
 				"unexpectedType: condition uses value with unspecified type from schema")
 		} else if !isTypeBoolean(inferredType) && !isTypeUnknown(inferredType) {
@@ -78,7 +79,7 @@ func (v *Validator) getEffectiveActions(
 	principalScope ast.IsPrincipalScopeNode,
 	actionScope ast.IsActionScopeNode,
 	resourceScope ast.IsResourceScopeNode,
-) []*ActionTypeInfo {
+) []*schema.ActionTypeInfo {
 	candidateActions := v.getCandidateActions(actionScope)
 	if len(candidateActions) == 0 {
 		return nil
@@ -93,13 +94,13 @@ func (v *Validator) getEffectiveActions(
 }
 
 // getCandidateActions returns actions matching the action scope.
-func (v *Validator) getCandidateActions(actionScope ast.IsActionScopeNode) []*ActionTypeInfo {
+func (v *Validator) getCandidateActions(actionScope ast.IsActionScopeNode) []*schema.ActionTypeInfo {
 	switch a := actionScope.(type) {
 	case ast.ScopeTypeAll:
 		return v.allActions()
 	case ast.ScopeTypeEq:
 		if info, ok := v.actionTypes[a.Entity]; ok {
-			return []*ActionTypeInfo{info}
+			return []*schema.ActionTypeInfo{info}
 		}
 	case ast.ScopeTypeInSet:
 		return v.actionsInSet(a.Entities)
@@ -108,8 +109,8 @@ func (v *Validator) getCandidateActions(actionScope ast.IsActionScopeNode) []*Ac
 }
 
 // allActions returns all defined actions.
-func (v *Validator) allActions() []*ActionTypeInfo {
-	var actions []*ActionTypeInfo
+func (v *Validator) allActions() []*schema.ActionTypeInfo {
+	var actions []*schema.ActionTypeInfo
 	for _, info := range v.actionTypes {
 		actions = append(actions, info)
 	}
@@ -117,8 +118,8 @@ func (v *Validator) allActions() []*ActionTypeInfo {
 }
 
 // actionsInSet returns actions matching the given entity UIDs.
-func (v *Validator) actionsInSet(entities []types.EntityUID) []*ActionTypeInfo {
-	var actions []*ActionTypeInfo
+func (v *Validator) actionsInSet(entities []types.EntityUID) []*schema.ActionTypeInfo {
+	var actions []*schema.ActionTypeInfo
 	for _, entity := range entities {
 		if info, ok := v.actionTypes[entity]; ok {
 			actions = append(actions, info)
@@ -128,9 +129,9 @@ func (v *Validator) actionsInSet(entities []types.EntityUID) []*ActionTypeInfo {
 }
 
 // filterByPrincipalScope filters actions by principal scope compatibility.
-func (v *Validator) filterByPrincipalScope(actions []*ActionTypeInfo, scope ast.IsPrincipalScopeNode) []*ActionTypeInfo {
+func (v *Validator) filterByPrincipalScope(actions []*schema.ActionTypeInfo, scope ast.IsPrincipalScopeNode) []*schema.ActionTypeInfo {
 	principalType := v.extractScopeEntityType(scope)
-	var filtered []*ActionTypeInfo
+	var filtered []*schema.ActionTypeInfo
 	for _, action := range actions {
 		if principalType == "" || v.typeInList(principalType, action.PrincipalTypes) {
 			filtered = append(filtered, action)
@@ -140,9 +141,9 @@ func (v *Validator) filterByPrincipalScope(actions []*ActionTypeInfo, scope ast.
 }
 
 // filterByResourceScope filters actions by resource scope compatibility.
-func (v *Validator) filterByResourceScope(actions []*ActionTypeInfo, scope ast.IsResourceScopeNode) []*ActionTypeInfo {
+func (v *Validator) filterByResourceScope(actions []*schema.ActionTypeInfo, scope ast.IsResourceScopeNode) []*schema.ActionTypeInfo {
 	resourceType := v.extractScopeEntityType(scope)
-	var filtered []*ActionTypeInfo
+	var filtered []*schema.ActionTypeInfo
 	for _, action := range actions {
 		if resourceType == "" || v.typeInList(resourceType, action.ResourceTypes) {
 			filtered = append(filtered, action)
@@ -168,7 +169,7 @@ func (v *Validator) extractScopeEntityType(scope ast.IsScopeNode) types.EntityTy
 }
 
 // extractEffectivePrincipalTypes extracts principal types from effective actions.
-func (v *Validator) extractEffectivePrincipalTypes(scope ast.IsPrincipalScopeNode, effectiveActions []*ActionTypeInfo) []types.EntityType {
+func (v *Validator) extractEffectivePrincipalTypes(scope ast.IsPrincipalScopeNode, effectiveActions []*schema.ActionTypeInfo) []types.EntityType {
 	if len(effectiveActions) == 0 {
 		return nil
 	}
@@ -186,7 +187,7 @@ func (v *Validator) extractEffectivePrincipalTypes(scope ast.IsPrincipalScopeNod
 }
 
 // extractEffectiveResourceTypes extracts resource types from effective actions.
-func (v *Validator) extractEffectiveResourceTypes(scope ast.IsResourceScopeNode, effectiveActions []*ActionTypeInfo) []types.EntityType {
+func (v *Validator) extractEffectiveResourceTypes(scope ast.IsResourceScopeNode, effectiveActions []*schema.ActionTypeInfo) []types.EntityType {
 	if len(effectiveActions) == 0 {
 		return nil
 	}
@@ -214,9 +215,9 @@ func (v *Validator) extractEffectiveResourceTypes(scope ast.IsResourceScopeNode,
 // - For multiple actions: intersection of their context attributes
 //   - If intersection is empty, returns RecordType with empty (non-nil) Attributes
 //   - This means accessing ANY attribute is an attrNotFound error (matches Lean)
-func (v *Validator) extractEffectiveContextType(effectiveActions []*ActionTypeInfo) RecordType {
+func (v *Validator) extractEffectiveContextType(effectiveActions []*schema.ActionTypeInfo) schema.RecordType {
 	if len(effectiveActions) == 0 {
-		return RecordType{} // Unknown context, be lenient
+		return schema.RecordType{} // Unknown context, be lenient
 	}
 	if len(effectiveActions) == 1 {
 		return effectiveActions[0].Context
@@ -225,7 +226,7 @@ func (v *Validator) extractEffectiveContextType(effectiveActions []*ActionTypeIn
 }
 
 // computeContextIntersection computes the intersection of context attributes from multiple actions.
-func (v *Validator) computeContextIntersection(actions []*ActionTypeInfo) RecordType {
+func (v *Validator) computeContextIntersection(actions []*schema.ActionTypeInfo) schema.RecordType {
 	intersection := copyAttributes(actions[0].Context.Attributes)
 
 	for i := 1; i < len(actions); i++ {
@@ -233,21 +234,21 @@ func (v *Validator) computeContextIntersection(actions []*ActionTypeInfo) Record
 	}
 
 	// Return with non-nil Attributes map (empty means "known but no common attributes")
-	return RecordType{Attributes: intersection}
+	return schema.RecordType{Attributes: intersection}
 }
 
 // copyAttributes creates a copy of an attribute map.
-func copyAttributes(attrs map[string]AttributeType) map[string]AttributeType {
-	result := make(map[string]AttributeType)
+func copyAttributes(attrs map[string]schema.AttributeType) map[string]schema.AttributeType {
+	result := make(map[string]schema.AttributeType)
 	maps.Copy(result, attrs)
 	return result
 }
 
 // intersectAttributes modifies intersection to keep only attributes that exist in both maps with matching types.
-func intersectAttributes(intersection map[string]AttributeType, other map[string]AttributeType) {
+func intersectAttributes(intersection map[string]schema.AttributeType, other map[string]schema.AttributeType) {
 	for name, attr := range intersection {
 		otherAttr, ok := other[name]
-		if !ok || !TypesMatch(attr.Type, otherAttr.Type) {
+		if !ok || !schema.TypesMatch(attr.Type, otherAttr.Type) {
 			delete(intersection, name)
 			continue
 		}
@@ -307,9 +308,9 @@ func (v *Validator) allEntityTypes() []types.EntityType {
 }
 
 // typecheck infers the type of an AST node and reports type errors
-func (ctx *typeContext) typecheck(node ast.IsNode) CedarType {
+func (ctx *typeContext) typecheck(node ast.IsNode) schema.CedarType {
 	if node == nil {
-		return UnknownType{}
+		return schema.UnknownType{}
 	}
 
 	switch n := node.(type) {
@@ -334,18 +335,18 @@ func (ctx *typeContext) typecheck(node ast.IsNode) CedarType {
 		return ctx.typecheckIn(n)
 	case ast.NodeTypeIs:
 		ctx.typecheck(n.Left)
-		return BoolType{}
+		return schema.BoolType{}
 	case ast.NodeTypeIsIn:
 		ctx.typecheck(n.Left)
 		ctx.typecheck(n.Entity)
 		// Check for impossible "is ... in ..." relationships
 		ctx.checkImpossibleIsInRelationship(n)
-		return BoolType{}
+		return schema.BoolType{}
 	case ast.NodeTypeAccess:
 		return ctx.typecheckAccess(n)
 	case ast.NodeTypeHas:
 		ctx.typecheck(n.Arg)
-		return BoolType{}
+		return schema.BoolType{}
 	case ast.NodeTypeContains, ast.NodeTypeContainsAll, ast.NodeTypeContainsAny:
 		return ctx.typecheckSetOp(n)
 	case ast.NodeTypeIsEmpty:
@@ -363,54 +364,54 @@ func (ctx *typeContext) typecheck(node ast.IsNode) CedarType {
 	case ast.NodeTypeGetTag:
 		ctx.typecheck(n.Left)
 		ctx.typecheck(n.Right)
-		return UnknownType{}
+		return schema.UnknownType{}
 	case ast.NodeTypeHasTag:
 		ctx.typecheck(n.Left)
 		ctx.typecheck(n.Right)
-		return BoolType{}
+		return schema.BoolType{}
 	default:
-		return UnknownType{}
+		return schema.UnknownType{}
 	}
 }
 
 // typecheckUnaryBool checks a unary operator that requires a boolean operand.
-func (ctx *typeContext) typecheckUnaryBool(arg ast.IsNode, opName string) CedarType {
+func (ctx *typeContext) typecheckUnaryBool(arg ast.IsNode, opName string) schema.CedarType {
 	argType := ctx.typecheck(arg)
 	if !isTypeBoolean(argType) && !isTypeUnknown(argType) {
 		ctx.errors = append(ctx.errors, fmt.Sprintf("unexpectedType: %s requires boolean operand, got %s", opName, argType))
 	}
-	return BoolType{}
+	return schema.BoolType{}
 }
 
 // typecheckUnaryLong checks a unary operator that requires a Long operand.
-func (ctx *typeContext) typecheckUnaryLong(arg ast.IsNode, opName string) CedarType {
+func (ctx *typeContext) typecheckUnaryLong(arg ast.IsNode, opName string) schema.CedarType {
 	argType := ctx.typecheck(arg)
 	if !isTypeLong(argType) && !isTypeUnknown(argType) {
 		ctx.errors = append(ctx.errors, fmt.Sprintf("unexpectedType: %s requires Long operand, got %s", opName, argType))
 	}
-	return LongType{}
+	return schema.LongType{}
 }
 
 // typecheckUnarySet checks an operator that requires a Set operand.
-func (ctx *typeContext) typecheckUnarySet(arg ast.IsNode) CedarType {
+func (ctx *typeContext) typecheckUnarySet(arg ast.IsNode) schema.CedarType {
 	argType := ctx.typecheck(arg)
 	if !isTypeSet(argType) && !isTypeUnknown(argType) {
 		ctx.errors = append(ctx.errors, fmt.Sprintf("unexpectedType: isEmpty() requires Set operand, got %s", argType))
 	}
-	return BoolType{}
+	return schema.BoolType{}
 }
 
 // typecheckUnaryString checks the like operator that requires a String operand.
-func (ctx *typeContext) typecheckUnaryString(arg ast.IsNode) CedarType {
+func (ctx *typeContext) typecheckUnaryString(arg ast.IsNode) schema.CedarType {
 	argType := ctx.typecheck(arg)
 	if !isTypeString(argType) && !isTypeUnknown(argType) {
 		ctx.errors = append(ctx.errors, fmt.Sprintf("unexpectedType: like operator requires String operand, got %s", argType))
 	}
-	return BoolType{}
+	return schema.BoolType{}
 }
 
 // typecheckConditional handles if-then-else expressions.
-func (ctx *typeContext) typecheckConditional(n ast.NodeTypeIfThenElse) CedarType {
+func (ctx *typeContext) typecheckConditional(n ast.NodeTypeIfThenElse) schema.CedarType {
 	condType := ctx.typecheck(n.If)
 	if !isTypeBoolean(condType) && !isTypeUnknown(condType) {
 		ctx.errors = append(ctx.errors, fmt.Sprintf("unexpectedType: if condition must be boolean, got %s", condType))
@@ -419,7 +420,7 @@ func (ctx *typeContext) typecheckConditional(n ast.NodeTypeIfThenElse) CedarType
 	elseType := ctx.typecheck(n.Else)
 	unified := unifyTypes(thenType, elseType)
 	// Check if unification failed - report lubErr
-	if _, isUnknown := unified.(UnknownType); isUnknown {
+	if _, isUnknown := unified.(schema.UnknownType); isUnknown {
 		if !isTypeUnknown(thenType) && !isTypeUnknown(elseType) {
 			ctx.errors = append(ctx.errors,
 				fmt.Sprintf("lubErr: if-then-else branches have incompatible types: %s and %s", thenType, elseType))
@@ -429,20 +430,20 @@ func (ctx *typeContext) typecheckConditional(n ast.NodeTypeIfThenElse) CedarType
 }
 
 // typecheckSetLiteral handles set literal expressions.
-func (ctx *typeContext) typecheckSetLiteral(n ast.NodeTypeSet) CedarType {
+func (ctx *typeContext) typecheckSetLiteral(n ast.NodeTypeSet) schema.CedarType {
 	if len(n.Elements) == 0 {
 		// Empty set literals are a type error in Lean (emptySetErr)
 		// because the element type cannot be inferred.
 		ctx.errors = append(ctx.errors, "emptySetErr: cannot infer element type of empty set literal")
-		return SetType{Element: UnknownType{}}
+		return schema.SetType{Element: schema.UnknownType{}}
 	}
-	var elemType CedarType = UnknownType{}
-	var incompatibleTypes []CedarType
+	var elemType schema.CedarType = schema.UnknownType{}
+	var incompatibleTypes []schema.CedarType
 	for _, elem := range n.Elements {
 		t := ctx.typecheck(elem)
 		unified := unifyTypes(elemType, t)
 		// Check if unification failed (resulted in UnknownType when both inputs were known)
-		if _, isUnknown := unified.(UnknownType); isUnknown {
+		if _, isUnknown := unified.(schema.UnknownType); isUnknown {
 			if !isTypeUnknown(elemType) && !isTypeUnknown(t) {
 				// Types are incompatible - collect them for error reporting
 				incompatibleTypes = append(incompatibleTypes, t)
@@ -454,21 +455,21 @@ func (ctx *typeContext) typecheckSetLiteral(n ast.NodeTypeSet) CedarType {
 	if len(incompatibleTypes) > 0 {
 		ctx.errors = append(ctx.errors, "incompatibleSetTypes: set elements have incompatible types")
 	}
-	return SetType{Element: elemType}
+	return schema.SetType{Element: elemType}
 }
 
 // typecheckRecordLiteral handles record literal expressions.
-func (ctx *typeContext) typecheckRecordLiteral(n ast.NodeTypeRecord) CedarType {
-	attrs := make(map[string]AttributeType)
+func (ctx *typeContext) typecheckRecordLiteral(n ast.NodeTypeRecord) schema.CedarType {
+	attrs := make(map[string]schema.AttributeType)
 	for _, elem := range n.Elements {
 		t := ctx.typecheck(elem.Value)
-		attrs[string(elem.Key)] = AttributeType{Type: t, Required: true}
+		attrs[string(elem.Key)] = schema.AttributeType{Type: t, Required: true}
 	}
-	return RecordType{Attributes: attrs}
+	return schema.RecordType{Attributes: attrs}
 }
 
 // typecheckValue handles literal values and checks for unknown entity types.
-func (ctx *typeContext) typecheckValue(val types.Value) CedarType {
+func (ctx *typeContext) typecheckValue(val types.Value) schema.CedarType {
 	if euid, ok := val.(types.EntityUID); ok {
 		ctx.checkEntityTypeKnown(euid)
 	}
@@ -494,33 +495,33 @@ func (ctx *typeContext) checkEntityTypeKnown(euid types.EntityUID) {
 }
 
 // typecheckVariable handles variable references (principal, action, resource, context)
-func (ctx *typeContext) typecheckVariable(n ast.NodeTypeVariable) CedarType {
+func (ctx *typeContext) typecheckVariable(n ast.NodeTypeVariable) schema.CedarType {
 	switch string(n.Name) {
 	case "principal":
 		if len(ctx.principalTypes) == 1 {
-			return EntityType{Name: ctx.principalTypes[0]}
+			return schema.EntityCedarType{Name: ctx.principalTypes[0]}
 		}
-		return EntityType{} // Unknown entity type
+		return schema.EntityCedarType{} // Unknown entity type
 	case "action":
 		if ctx.actionUID != nil {
-			return EntityType{Name: ctx.actionUID.Type}
+			return schema.EntityCedarType{Name: ctx.actionUID.Type}
 		}
-		return EntityType{Name: "Action"}
+		return schema.EntityCedarType{Name: "Action"}
 	case "resource":
 		if len(ctx.resourceTypes) == 1 {
-			return EntityType{Name: ctx.resourceTypes[0]}
+			return schema.EntityCedarType{Name: ctx.resourceTypes[0]}
 		}
-		return EntityType{}
+		return schema.EntityCedarType{}
 	case "context":
 		// Use the pre-computed context type from effective actions
 		return ctx.contextType
 	default:
-		return UnknownType{}
+		return schema.UnknownType{}
 	}
 }
 
 // typecheckBooleanBinary handles && and || operators
-func (ctx *typeContext) typecheckBooleanBinary(node ast.IsNode) CedarType {
+func (ctx *typeContext) typecheckBooleanBinary(node ast.IsNode) schema.CedarType {
 	var left, right ast.IsNode
 	switch n := node.(type) {
 	case ast.NodeTypeOr:
@@ -540,11 +541,11 @@ func (ctx *typeContext) typecheckBooleanBinary(node ast.IsNode) CedarType {
 		ctx.errors = append(ctx.errors,
 			fmt.Sprintf("unexpectedType: boolean operator requires boolean operands, got %s", rightType))
 	}
-	return BoolType{}
+	return schema.BoolType{}
 }
 
 // typecheckEquality handles == and != operators
-func (ctx *typeContext) typecheckEquality(node ast.IsNode) CedarType {
+func (ctx *typeContext) typecheckEquality(node ast.IsNode) schema.CedarType {
 	var left, right ast.IsNode
 	switch n := node.(type) {
 	case ast.NodeTypeEquals:
@@ -573,7 +574,7 @@ func (ctx *typeContext) typecheckEquality(node ast.IsNode) CedarType {
 	// making the policy impossible. This matches Lean's impossiblePolicy check.
 	ctx.checkPrincipalResourceEquality(left, right)
 
-	return BoolType{}
+	return schema.BoolType{}
 }
 
 // checkPrincipalResourceEquality detects impossible equality between principal and resource.
@@ -618,7 +619,7 @@ func (ctx *typeContext) typeSetsOverlap(a, b []types.EntityType) bool {
 }
 
 // typecheckComparison handles <, <=, >, >= operators
-func (ctx *typeContext) typecheckComparison(node ast.IsNode) CedarType {
+func (ctx *typeContext) typecheckComparison(node ast.IsNode) schema.CedarType {
 	var left, right ast.IsNode
 	switch n := node.(type) {
 	case ast.NodeTypeLessThan:
@@ -642,11 +643,11 @@ func (ctx *typeContext) typecheckComparison(node ast.IsNode) CedarType {
 		ctx.errors = append(ctx.errors,
 			fmt.Sprintf("unexpectedType: comparison operator requires Long operands, got %s", rightType))
 	}
-	return BoolType{}
+	return schema.BoolType{}
 }
 
 // typecheckArithmetic handles +, -, * operators
-func (ctx *typeContext) typecheckArithmetic(node ast.IsNode) CedarType {
+func (ctx *typeContext) typecheckArithmetic(node ast.IsNode) schema.CedarType {
 	var left, right ast.IsNode
 	switch n := node.(type) {
 	case ast.NodeTypeAdd:
@@ -668,11 +669,11 @@ func (ctx *typeContext) typecheckArithmetic(node ast.IsNode) CedarType {
 		ctx.errors = append(ctx.errors,
 			fmt.Sprintf("unexpectedType: arithmetic operator requires Long operands, got %s", rightType))
 	}
-	return LongType{}
+	return schema.LongType{}
 }
 
 // typecheckIn handles the 'in' operator
-func (ctx *typeContext) typecheckIn(n ast.NodeTypeIn) CedarType {
+func (ctx *typeContext) typecheckIn(n ast.NodeTypeIn) schema.CedarType {
 	leftType := ctx.typecheck(n.Left)
 	rightType := ctx.typecheck(n.Right)
 
@@ -694,7 +695,7 @@ func (ctx *typeContext) typecheckIn(n ast.NodeTypeIn) CedarType {
 	// based on memberOfTypes relationships.
 	ctx.checkImpossibleInRelationship(n.Left, n.Right)
 
-	return BoolType{}
+	return schema.BoolType{}
 }
 
 // checkImpossibleInRelationship detects when an "in" relationship is impossible.
@@ -800,7 +801,7 @@ func (ctx *typeContext) checkImpossibleIsInRelationship(n ast.NodeTypeIsIn) {
 }
 
 // typecheckAccess handles attribute access (e.g., principal.name)
-func (ctx *typeContext) typecheckAccess(n ast.NodeTypeAccess) CedarType {
+func (ctx *typeContext) typecheckAccess(n ast.NodeTypeAccess) schema.CedarType {
 	ctx.currentLevel++
 	defer func() { ctx.currentLevel-- }()
 
@@ -814,33 +815,33 @@ func (ctx *typeContext) typecheckAccess(n ast.NodeTypeAccess) CedarType {
 	attrName := string(n.Value)
 
 	switch t := baseType.(type) {
-	case EntityType:
+	case schema.EntityCedarType:
 		return ctx.typecheckEntityAttrAccess(t, attrName)
-	case RecordType:
+	case schema.RecordType:
 		return ctx.typecheckRecordAttrAccess(t, attrName)
-	case UnknownType:
-		return UnknownType{}
+	case schema.UnknownType:
+		return schema.UnknownType{}
 	default:
 		ctx.errors = append(ctx.errors,
 			fmt.Sprintf("unexpectedType: cannot access attribute '%s' on type %s", attrName, baseType))
-		return UnknownType{}
+		return schema.UnknownType{}
 	}
 }
 
 // typecheckEntityAttrAccess handles attribute access on entity types.
-func (ctx *typeContext) typecheckEntityAttrAccess(t EntityType, attrName string) CedarType {
+func (ctx *typeContext) typecheckEntityAttrAccess(t schema.EntityCedarType, attrName string) schema.CedarType {
 	info, ok := ctx.v.entityTypes[t.Name]
 	if !ok {
 		ctx.errors = append(ctx.errors,
 			fmt.Sprintf("unknownEntity: cannot access attribute '%s' on unknown entity type %s", attrName, t.Name))
-		return UnknownType{}
+		return schema.UnknownType{}
 	}
 
 	attr, ok := info.Attributes[attrName]
 	if !ok {
 		ctx.errors = append(ctx.errors,
 			fmt.Sprintf("attrNotFound: entity type %s does not have attribute '%s'", t.Name, attrName))
-		return UnknownType{}
+		return schema.UnknownType{}
 	}
 
 	if !attr.Required {
@@ -851,7 +852,7 @@ func (ctx *typeContext) typecheckEntityAttrAccess(t EntityType, attrName string)
 }
 
 // typecheckRecordAttrAccess handles attribute access on record types.
-func (ctx *typeContext) typecheckRecordAttrAccess(t RecordType, attrName string) CedarType {
+func (ctx *typeContext) typecheckRecordAttrAccess(t schema.RecordType, attrName string) schema.CedarType {
 	attr, ok := t.Attributes[attrName]
 	if !ok {
 		// If we have a known record type (Attributes is not nil), accessing a
@@ -861,7 +862,7 @@ func (ctx *typeContext) typecheckRecordAttrAccess(t RecordType, attrName string)
 			ctx.errors = append(ctx.errors,
 				fmt.Sprintf("attrNotFound: attribute '%s' not found in record type", attrName))
 		}
-		return UnknownType{}
+		return schema.UnknownType{}
 	}
 
 	if !attr.Required {
@@ -872,9 +873,9 @@ func (ctx *typeContext) typecheckRecordAttrAccess(t RecordType, attrName string)
 }
 
 // typecheckWithoutLevelIncrement is used for nested access to avoid double counting
-func (ctx *typeContext) typecheckWithoutLevelIncrement(node ast.IsNode) CedarType {
+func (ctx *typeContext) typecheckWithoutLevelIncrement(node ast.IsNode) schema.CedarType {
 	if node == nil {
-		return UnknownType{}
+		return schema.UnknownType{}
 	}
 
 	// For nested access nodes, delegate to typecheckAccess which handles its own level
@@ -887,7 +888,7 @@ func (ctx *typeContext) typecheckWithoutLevelIncrement(node ast.IsNode) CedarTyp
 }
 
 // typecheckSetOp handles contains, containsAll, containsAny
-func (ctx *typeContext) typecheckSetOp(node ast.IsNode) CedarType {
+func (ctx *typeContext) typecheckSetOp(node ast.IsNode) schema.CedarType {
 	var left, right ast.IsNode
 	switch n := node.(type) {
 	case ast.NodeTypeContains:
@@ -907,13 +908,13 @@ func (ctx *typeContext) typecheckSetOp(node ast.IsNode) CedarType {
 	}
 
 	_ = rightType // Right operand type depends on the specific operation
-	return BoolType{}
+	return schema.BoolType{}
 }
 
 // typecheckExtensionCall handles extension function calls
-func (ctx *typeContext) typecheckExtensionCall(n ast.NodeTypeExtensionCall) CedarType {
+func (ctx *typeContext) typecheckExtensionCall(n ast.NodeTypeExtensionCall) schema.CedarType {
 	// Type-check all arguments and collect their types
-	argTypes := make([]CedarType, len(n.Args))
+	argTypes := make([]schema.CedarType, len(n.Args))
 	for i, arg := range n.Args {
 		argTypes[i] = ctx.typecheck(arg)
 	}
@@ -924,72 +925,72 @@ func (ctx *typeContext) typecheckExtensionCall(n ast.NodeTypeExtensionCall) Ceda
 	switch funcName {
 	// IP address constructor: ip(String) -> ipaddr
 	case "ip", "ipaddr":
-		ctx.expectArgs(funcName, argTypes, StringType{})
+		ctx.expectArgs(funcName, argTypes, schema.StringType{})
 		// Validate IP address literal if argument is a literal string
 		ctx.validateExtensionLiteral(n.Args, "ip", isValidIPLiteral)
-		return ExtensionType{Name: "ipaddr"}
+		return schema.ExtensionType{Name: "ipaddr"}
 
 	// IP address methods (called on ipaddr, no additional args)
 	case "isIpv4", "isIpv6", "isLoopback", "isMulticast":
-		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "ipaddr"})
-		return BoolType{}
+		ctx.expectArgs(funcName, argTypes, schema.ExtensionType{Name: "ipaddr"})
+		return schema.BoolType{}
 
 	// isInRange: ipaddr.isInRange(ipaddr) -> Bool
 	case "isInRange":
-		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "ipaddr"}, ExtensionType{Name: "ipaddr"})
-		return BoolType{}
+		ctx.expectArgs(funcName, argTypes, schema.ExtensionType{Name: "ipaddr"}, schema.ExtensionType{Name: "ipaddr"})
+		return schema.BoolType{}
 
 	// Decimal constructor: decimal(String) -> decimal
 	case "decimal":
-		ctx.expectArgs(funcName, argTypes, StringType{})
+		ctx.expectArgs(funcName, argTypes, schema.StringType{})
 		ctx.validateExtensionLiteral(n.Args, "decimal", isValidDecimalLiteral)
-		return ExtensionType{Name: "decimal"}
+		return schema.ExtensionType{Name: "decimal"}
 
 	// Decimal comparison methods: decimal.lessThan(decimal) -> Bool
 	case "lessThan", "lessThanOrEqual", "greaterThan", "greaterThanOrEqual":
-		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "decimal"}, ExtensionType{Name: "decimal"})
-		return BoolType{}
+		ctx.expectArgs(funcName, argTypes, schema.ExtensionType{Name: "decimal"}, schema.ExtensionType{Name: "decimal"})
+		return schema.BoolType{}
 
 	// Datetime constructor: datetime(String) -> datetime
 	case "datetime":
-		ctx.expectArgs(funcName, argTypes, StringType{})
+		ctx.expectArgs(funcName, argTypes, schema.StringType{})
 		ctx.validateExtensionLiteral(n.Args, "datetime", isValidDatetimeLiteral)
-		return ExtensionType{Name: "datetime"}
+		return schema.ExtensionType{Name: "datetime"}
 
 	// Duration constructor: duration(String) -> duration
 	case "duration":
-		ctx.expectArgs(funcName, argTypes, StringType{})
+		ctx.expectArgs(funcName, argTypes, schema.StringType{})
 		ctx.validateExtensionLiteral(n.Args, "duration", isValidDurationLiteral)
-		return ExtensionType{Name: "duration"}
+		return schema.ExtensionType{Name: "duration"}
 
 	// Datetime arithmetic: datetime.offset(duration) -> datetime
 	case "offset":
-		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "datetime"}, ExtensionType{Name: "duration"})
-		return ExtensionType{Name: "datetime"}
+		ctx.expectArgs(funcName, argTypes, schema.ExtensionType{Name: "datetime"}, schema.ExtensionType{Name: "duration"})
+		return schema.ExtensionType{Name: "datetime"}
 
 	// Datetime difference: datetime.durationSince(datetime) -> duration
 	case "durationSince":
-		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "datetime"}, ExtensionType{Name: "datetime"})
-		return ExtensionType{Name: "duration"}
+		ctx.expectArgs(funcName, argTypes, schema.ExtensionType{Name: "datetime"}, schema.ExtensionType{Name: "datetime"})
+		return schema.ExtensionType{Name: "duration"}
 
 	// Datetime extraction methods (called on datetime, no additional args)
 	case "toDate", "toTime":
-		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "datetime"})
-		return ExtensionType{Name: "datetime"}
+		ctx.expectArgs(funcName, argTypes, schema.ExtensionType{Name: "datetime"})
+		return schema.ExtensionType{Name: "datetime"}
 
 	// Duration conversion methods (called on duration, no additional args)
 	case "toDays", "toHours", "toMinutes", "toSeconds", "toMilliseconds":
-		ctx.expectArgs(funcName, argTypes, ExtensionType{Name: "duration"})
-		return LongType{}
+		ctx.expectArgs(funcName, argTypes, schema.ExtensionType{Name: "duration"})
+		return schema.LongType{}
 
 	default:
-		return UnknownType{}
+		return schema.UnknownType{}
 	}
 }
 
 // expectArgs validates that the provided argument types match the expected types.
 // If there's a mismatch, it reports a type error.
-func (ctx *typeContext) expectArgs(funcName string, actual []CedarType, expected ...CedarType) {
+func (ctx *typeContext) expectArgs(funcName string, actual []schema.CedarType, expected ...schema.CedarType) {
 	if len(actual) != len(expected) {
 		ctx.errors = append(ctx.errors,
 			fmt.Sprintf("extensionErr: %s() expects %d argument(s), got %d", funcName, len(expected), len(actual)))
@@ -998,7 +999,7 @@ func (ctx *typeContext) expectArgs(funcName string, actual []CedarType, expected
 
 	for i, exp := range expected {
 		act := actual[i]
-		if !isTypeUnknown(act) && !TypesMatch(exp, act) {
+		if !isTypeUnknown(act) && !schema.TypesMatch(exp, act) {
 			ctx.errors = append(ctx.errors,
 				fmt.Sprintf("extensionErr: %s() argument %d: expected %s, got %s", funcName, i+1, exp, act))
 		}
@@ -1075,38 +1076,38 @@ func isValidDurationLiteral(s string) bool {
 // ============================================================================
 
 // isTypeBoolean returns true if the type is BoolType.
-func isTypeBoolean(t CedarType) bool {
-	_, ok := t.(BoolType)
+func isTypeBoolean(t schema.CedarType) bool {
+	_, ok := t.(schema.BoolType)
 	return ok
 }
 
 // isTypeLong returns true if the type is LongType.
-func isTypeLong(t CedarType) bool {
-	_, ok := t.(LongType)
+func isTypeLong(t schema.CedarType) bool {
+	_, ok := t.(schema.LongType)
 	return ok
 }
 
 // isTypeString returns true if the type is StringType.
-func isTypeString(t CedarType) bool {
-	_, ok := t.(StringType)
+func isTypeString(t schema.CedarType) bool {
+	_, ok := t.(schema.StringType)
 	return ok
 }
 
-// isTypeEntity returns true if the type is EntityType.
-func isTypeEntity(t CedarType) bool {
-	_, ok := t.(EntityType)
+// isTypeEntity returns true if the type is EntityCedarType.
+func isTypeEntity(t schema.CedarType) bool {
+	_, ok := t.(schema.EntityCedarType)
 	return ok
 }
 
 // isTypeSet returns true if the type is SetType.
-func isTypeSet(t CedarType) bool {
-	_, ok := t.(SetType)
+func isTypeSet(t schema.CedarType) bool {
+	_, ok := t.(schema.SetType)
 	return ok
 }
 
 // isTypeUnknown returns true if the type is UnknownType.
-func isTypeUnknown(t CedarType) bool {
-	_, ok := t.(UnknownType)
+func isTypeUnknown(t schema.CedarType) bool {
+	_, ok := t.(schema.UnknownType)
 	return ok
 }
 
@@ -1114,17 +1115,17 @@ func isTypeUnknown(t CedarType) bool {
 // If either type is unknown, returns the other.
 // If types match, returns the first.
 // Otherwise returns UnknownType.
-func unifyTypes(t1, t2 CedarType) CedarType {
+func unifyTypes(t1, t2 schema.CedarType) schema.CedarType {
 	if isTypeUnknown(t1) {
 		return t2
 	}
 	if isTypeUnknown(t2) {
 		return t1
 	}
-	if TypesMatch(t1, t2) {
+	if schema.TypesMatch(t1, t2) {
 		return t1
 	}
-	return UnknownType{}
+	return schema.UnknownType{}
 }
 
 // typeCat represents a type category for comparison purposes.
@@ -1149,7 +1150,7 @@ const (
 // Cedar's type system requires that equality operands have the same base type.
 // However, if either type is unknown or unresolved, we allow the comparison
 // to match Lean's lenient behavior.
-func (ctx *typeContext) typesAreComparable(t1, t2 CedarType) bool {
+func (ctx *typeContext) typesAreComparable(t1, t2 schema.CedarType) bool {
 	cat1 := ctx.typeCategory(t1)
 	cat2 := ctx.typeCategory(t2)
 
@@ -1167,8 +1168,8 @@ func (ctx *typeContext) typesAreComparable(t1, t2 CedarType) bool {
 	// Two records can only be compared if they have a valid least upper bound (lub).
 	// This requires that for closed records, neither has attributes the other lacks.
 	if cat1 == catRecord {
-		r1, ok1 := t1.(RecordType)
-		r2, ok2 := t2.(RecordType)
+		r1, ok1 := t1.(schema.RecordType)
+		r2, ok2 := t2.(schema.RecordType)
 		if ok1 && ok2 {
 			return ctx.recordTypesHaveLub(r1, r2)
 		}
@@ -1181,7 +1182,7 @@ func (ctx *typeContext) typesAreComparable(t1, t2 CedarType) bool {
 // For records to have a lub:
 // 1. Common attributes must have compatible types
 // 2. For closed records, attributes in one that don't exist in the other cause a lubErr
-func (ctx *typeContext) recordTypesHaveLub(r1, r2 RecordType) bool {
+func (ctx *typeContext) recordTypesHaveLub(r1, r2 schema.RecordType) bool {
 	// Check all attributes in r1
 	for name, attr1 := range r1.Attributes {
 		if attr2, exists := r2.Attributes[name]; exists {
@@ -1213,15 +1214,15 @@ func (ctx *typeContext) recordTypesHaveLub(r1, r2 RecordType) bool {
 }
 
 // typeCategory returns the category of a type for comparison purposes.
-func (ctx *typeContext) typeCategory(t CedarType) typeCat {
+func (ctx *typeContext) typeCategory(t schema.CedarType) typeCat {
 	switch ct := t.(type) {
-	case BoolType:
+	case schema.BoolType:
 		return catBool
-	case LongType:
+	case schema.LongType:
 		return catLong
-	case StringType:
+	case schema.StringType:
 		return catString
-	case EntityType:
+	case schema.EntityCedarType:
 		// All entity types are in the entity category, regardless of whether
 		// they're defined in entityTypes. This includes:
 		// - Action entity types (in actionTypes)
@@ -1230,13 +1231,13 @@ func (ctx *typeContext) typeCategory(t CedarType) typeCat {
 		// - Entity types from attributes
 		// This ensures comparing entities with non-entities (like strings) is an error.
 		return catEntity
-	case AnyEntityType:
+	case schema.AnyEntityType:
 		return catEntity
-	case SetType:
+	case schema.SetType:
 		return catSet
-	case RecordType:
+	case schema.RecordType:
 		return catRecord
-	case ExtensionType:
+	case schema.ExtensionType:
 		switch ct.Name {
 		case "decimal":
 			return catExtDecimal
@@ -1248,7 +1249,7 @@ func (ctx *typeContext) typeCategory(t CedarType) typeCat {
 			return catExtDuration
 		}
 		return catUnknown
-	case UnspecifiedType:
+	case schema.UnspecifiedType:
 		// UnspecifiedType is treated as unknown for comparison purposes.
 		// This allows comparisons with unspecified types (they return Bool),
 		// while using unspecified types as conditions is caught separately.

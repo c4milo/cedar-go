@@ -21,6 +21,7 @@ import (
 
 	"github.com/cedar-policy/cedar-go/types"
 	"github.com/cedar-policy/cedar-go/x/exp/ast"
+	"github.com/cedar-policy/cedar-go/x/exp/schema"
 )
 
 // ============================================================================
@@ -120,7 +121,7 @@ func (v *Validator) validateActionScopeInSet(s ast.ScopeTypeInSet, errs *[]strin
 // An action is valid if it has at least one principalType AND at least one resourceType.
 // Additionally, if the types look like they have a non-empty namespace but empty type name
 // (like "Namespace::"), Lean considers this an unknownEntity error.
-func (v *Validator) actionHasValidAppliesTo(info *ActionTypeInfo) bool {
+func (v *Validator) actionHasValidAppliesTo(info *schema.ActionTypeInfo) bool {
 	if len(info.PrincipalTypes) == 0 || len(info.ResourceTypes) == 0 {
 		return false
 	}
@@ -181,7 +182,7 @@ func (v *Validator) validateActionAppliesTo(policyAST *ast.Policy, errs *[]strin
 }
 
 // hasValidActionMatch checks if any action supports the policy's principal and resource constraints.
-func (v *Validator) hasValidActionMatch(policyAST *ast.Policy, actionInfos []*ActionTypeInfo) bool {
+func (v *Validator) hasValidActionMatch(policyAST *ast.Policy, actionInfos []*schema.ActionTypeInfo) bool {
 	for _, info := range actionInfos {
 		principalOK := v.isScopeTypeSatisfiable(policyAST.Principal, info.PrincipalTypes)
 		resourceOK := v.isScopeTypeSatisfiable(policyAST.Resource, info.ResourceTypes)
@@ -193,7 +194,7 @@ func (v *Validator) hasValidActionMatch(policyAST *ast.Policy, actionInfos []*Ac
 }
 
 // reportActionAppliesToError reports errors when no action supports the policy constraints.
-func (v *Validator) reportActionAppliesToError(policyAST *ast.Policy, actionInfos []*ActionTypeInfo, errs *[]string) {
+func (v *Validator) reportActionAppliesToError(policyAST *ast.Policy, actionInfos []*schema.ActionTypeInfo, errs *[]string) {
 	principalTypes := v.unionPrincipalTypes(actionInfos)
 	resourceTypes := v.unionResourceTypes(actionInfos)
 
@@ -211,25 +212,25 @@ func (v *Validator) reportActionAppliesToError(policyAST *ast.Policy, actionInfo
 	}
 }
 
-// getActionInfos extracts ActionTypeInfo(s) from an action scope.
+// getActionInfos extracts schema.ActionTypeInfo(s) from an action scope.
 // Returns slice of action infos for single action or action set.
 // For ScopeTypeAll (unscoped action), returns all action infos.
-func (v *Validator) getActionInfos(scope ast.IsScopeNode) []*ActionTypeInfo {
+func (v *Validator) getActionInfos(scope ast.IsScopeNode) []*schema.ActionTypeInfo {
 	switch s := scope.(type) {
 	case ast.ScopeTypeAll:
 		// For unscoped action (all actions), return all action infos.
 		// This enables impossiblePolicy checking against all possible actions.
-		var infos []*ActionTypeInfo
+		var infos []*schema.ActionTypeInfo
 		for _, info := range v.actionTypes {
 			infos = append(infos, info)
 		}
 		return infos
 	case ast.ScopeTypeEq:
 		if info, ok := v.actionTypes[s.Entity]; ok {
-			return []*ActionTypeInfo{info}
+			return []*schema.ActionTypeInfo{info}
 		}
 	case ast.ScopeTypeInSet:
-		var infos []*ActionTypeInfo
+		var infos []*schema.ActionTypeInfo
 		for _, entity := range s.Entities {
 			if info, ok := v.actionTypes[entity]; ok {
 				infos = append(infos, info)
@@ -241,7 +242,7 @@ func (v *Validator) getActionInfos(scope ast.IsScopeNode) []*ActionTypeInfo {
 }
 
 // unionPrincipalTypes returns the union of principal types from multiple action infos.
-func (v *Validator) unionPrincipalTypes(infos []*ActionTypeInfo) []types.EntityType {
+func (v *Validator) unionPrincipalTypes(infos []*schema.ActionTypeInfo) []types.EntityType {
 	seen := make(map[types.EntityType]bool)
 	var result []types.EntityType
 	for _, info := range infos {
@@ -256,7 +257,7 @@ func (v *Validator) unionPrincipalTypes(infos []*ActionTypeInfo) []types.EntityT
 }
 
 // unionResourceTypes returns the union of resource types from multiple action infos.
-func (v *Validator) unionResourceTypes(infos []*ActionTypeInfo) []types.EntityType {
+func (v *Validator) unionResourceTypes(infos []*schema.ActionTypeInfo) []types.EntityType {
 	seen := make(map[types.EntityType]bool)
 	var result []types.EntityType
 	for _, info := range infos {

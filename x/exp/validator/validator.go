@@ -29,9 +29,9 @@ import (
 type Validator struct {
 	schema *schema.Schema
 	// Parsed schema representation for type checking
-	entityTypes map[types.EntityType]*EntityTypeInfo
-	actionTypes map[types.EntityUID]*ActionTypeInfo
-	commonTypes map[string]CedarType
+	entityTypes map[types.EntityType]*schema.EntityTypeInfo
+	actionTypes map[types.EntityUID]*schema.ActionTypeInfo
+	commonTypes map[string]schema.CedarType
 	// maxAttributeLevel controls the maximum depth of attribute access chains.
 	// A value of 0 means no limit. Level 1 allows e.g., principal.name,
 	// Level 2 allows principal.manager.name, etc.
