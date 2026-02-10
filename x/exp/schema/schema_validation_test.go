@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cedar-policy/cedar-go/internal/schema/ast"
 	"github.com/cedar-policy/cedar-go/types"
 )
 
@@ -699,5 +700,204 @@ func TestFromFragmentsSingleNil(t *testing.T) {
 	}
 	if s == nil {
 		t.Fatal("FromFragments(nil) should return non-nil schema")
+	}
+}
+
+// --- Coverage: parse.go parseJSONType switch cases ---
+
+// "Bool" (not "Boolean") in a common type exercises the "Bool" case in parseJSONType.
+func TestParseJSONTypeBoolVariant(t *testing.T) {
+	src := `{
+		"entityTypes": {"User": {}},
+		"commonTypes": {"Flag": {"type": "Bool"}}
+	}`
+	s, err := NewFromJSON([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify the common type parsed as BoolType
+	ct, ok := s.CommonTypesMap()["Flag"]
+	if !ok {
+		t.Fatal("Flag common type not found")
+	}
+	if _, isBool := ct.(BoolType); !isBool {
+		t.Errorf("Flag: got %T, want BoolType", ct)
+	}
+}
+
+// "Extension" type in a common type exercises the "Extension" case in parseJSONType.
+func TestParseJSONTypeExtensionVariant(t *testing.T) {
+	src := `{
+		"entityTypes": {"User": {}},
+		"commonTypes": {"Score": {"type": "Extension", "name": "decimal"}}
+	}`
+	s, err := NewFromJSON([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct, ok := s.CommonTypesMap()["Score"]
+	if !ok {
+		t.Fatal("Score common type not found")
+	}
+	if ext, isExt := ct.(ExtensionType); !isExt {
+		t.Errorf("Score: got %T, want ExtensionType", ct)
+	} else if ext.Name != "decimal" {
+		t.Errorf("Score extension name = %q, want %q", ext.Name, "decimal")
+	}
+}
+
+// --- Coverage: schema.go validation paths ---
+
+// NewFragmentFromJSON with namespace-format JSON containing invalid identifiers
+// exercises the validateIdentifiers error path in the namespace branch (line 227).
+func TestNewFragmentFromJSONNamespaceInvalidIdentifier(t *testing.T) {
+	_, err := NewFragmentFromJSON([]byte(`{"app": {"entityTypes": {"123Bad": {}}}}`))
+	if err == nil {
+		t.Error("expected validation error for invalid entity type identifier in namespace format")
+	}
+}
+
+// FromFragments with a Record attribute set to null exercises the nil-attr
+// guard in both validateRecordTypeRef and validateRecordTypeReferences.
+func TestFromFragmentsNullRecordAttribute(t *testing.T) {
+	frag, err := NewFragmentFromJSON([]byte(`{
+		"app": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"name": {"type": "String"},
+							"extra": null
+						}
+					}
+				}
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = FromFragments(frag)
+	if err != nil {
+		t.Errorf("null record attribute should be skipped gracefully: %v", err)
+	}
+}
+
+// FromFragments with a non-primitive type referencing an undefined name exercises
+// the validateDefaultTypeRef error path (line 593).
+func TestFromFragmentsDefaultTypeRefUndefined(t *testing.T) {
+	frag, err := NewFragmentFromJSON([]byte(`{
+		"app": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"ref": {"type": "CustomType", "name": "UndefinedRef"}
+						}
+					}
+				}
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = FromFragments(frag)
+	if err == nil {
+		t.Error("expected error for undefined type reference in default type ref path")
+	}
+}
+
+// FromFragments with a primitive type name as principalType exercises the
+// isPrimitiveType check in isDefinedType (line 602).
+func TestFromFragmentsPrimitiveAsPrincipalType(t *testing.T) {
+	frag, err := NewFragmentFromJSON([]byte(`{
+		"": {
+			"entityTypes": {"String": {}},
+			"actions": {
+				"view": {
+					"appliesTo": {
+						"principalTypes": ["String"],
+						"resourceTypes": ["String"]
+					}
+				}
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = FromFragments(frag)
+	if err != nil {
+		t.Errorf("primitive type name as principalType should be valid: %v", err)
+	}
+}
+
+// EntityOrCommon type with an invalid identifier in the name exercises
+// validateEntityOrCommonReference (line 859).
+// EntityOrCommon type with an empty name exercises the early-return path
+// in validateEntityOrCommonReference (line 859).
+func TestValidateEntityOrCommonEmptyName(t *testing.T) {
+	_, err := NewFromJSON([]byte(`{
+		"app": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"ref": {"type": "EntityOrCommon"}
+						}
+					}
+				}
+			}
+		}
+	}`))
+	if err != nil {
+		t.Errorf("EntityOrCommon with empty name should be valid: %v", err)
+	}
+}
+
+func TestValidateEntityOrCommonInvalidIdentifier(t *testing.T) {
+	_, err := NewFromJSON([]byte(`{
+		"app": {
+			"entityTypes": {
+				"User": {
+					"shape": {
+						"type": "Record",
+						"attributes": {
+							"ref": {"type": "EntityOrCommon", "name": "bad!name"}
+						}
+					}
+				}
+			}
+		}
+	}`))
+	if err == nil {
+		t.Error("expected error for EntityOrCommon with invalid identifier")
+	}
+	if err != nil && !strings.Contains(err.Error(), "invalid identifier") {
+		t.Errorf("error should mention invalid identifier, got: %v", err)
+	}
+}
+
+// FromFragments with a directly constructed fragment containing invalid identifiers
+// exercises the validateIdentifiers error path in FromFragments (line 333).
+func TestFromFragmentsValidateIdentifiersError(t *testing.T) {
+	badFrag := &SchemaFragment{
+		jsonSchema: ast.JSONSchema{
+			"app": &ast.JSONNamespace{
+				EntityTypes: map[string]*ast.JSONEntity{
+					"123Bad": {},
+				},
+				Actions:     make(map[string]*ast.JSONAction),
+				CommonTypes: make(map[string]*ast.JSONCommonType),
+			},
+		},
+	}
+	_, err := FromFragments(badFrag)
+	if err == nil {
+		t.Error("expected validation error for invalid identifier in FromFragments")
 	}
 }
