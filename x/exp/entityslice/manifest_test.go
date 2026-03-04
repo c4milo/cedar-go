@@ -492,8 +492,8 @@ func TestComputeManifestFromSchema(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
@@ -503,7 +503,7 @@ func TestComputeManifestFromSchema(t *testing.T) {
 		t.Fatalf("Failed to parse policy: %v", err)
 	}
 
-	manifest, err := ComputeManifestFromSchema(&s, policies)
+	manifest, err := ComputeManifestFromSchema(s, policies)
 	if err != nil {
 		t.Fatalf("ComputeManifestFromSchema failed: %v", err)
 	}
@@ -717,13 +717,13 @@ func TestComputeManifestFromSchemaValid(t *testing.T) {
 		}
 	}`
 
-	var s schema.Schema
-	if err := s.UnmarshalJSON([]byte(schemaJSON)); err != nil {
+	s, err := schema.NewFromJSON([]byte(schemaJSON))
+	if err != nil {
 		t.Fatalf("Failed to parse schema: %v", err)
 	}
 
 	policies := cedar.NewPolicySet()
-	manifest, err := ComputeManifestFromSchema(&s, policies)
+	manifest, err := ComputeManifestFromSchema(s, policies)
 	if err != nil {
 		t.Fatalf("ComputeManifestFromSchema failed: %v", err)
 	}

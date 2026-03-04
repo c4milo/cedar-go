@@ -170,9 +170,8 @@ func TestCorpus(t *testing.T) {
 			// Rust converted JSON never contains the empty context record
 			schemaContent = bytes.ReplaceAll(schemaContent, []byte("context: {}\n"), nil)
 
-			var s schema.Schema
-			s.SetFilename("test.schema")
-			if err := s.UnmarshalCedar(schemaContent); err != nil {
+			s, err := schema.NewFromCedar("test.schema", schemaContent)
+			if err != nil {
 				t.Fatal("error parsing schema", err, "\n===\n", string(schemaContent))
 			}
 
@@ -183,15 +182,13 @@ func TestCorpus(t *testing.T) {
 				js, err := s.MarshalJSON()
 				testutil.OK(t, err)
 
-				var s2 schema.Schema
-				err = s2.UnmarshalJSON(js)
+				s2, err := schema.NewFromJSON(js)
 				testutil.OK(t, err)
 
 				sb, err := s2.MarshalCedar()
 				testutil.OK(t, err)
 
-				var s3 schema.Schema
-				err = s3.UnmarshalCedar(sb)
+				s3, err := schema.NewFromCedar("", sb)
 				testutil.OK(t, err)
 
 				j2, err := s3.MarshalJSON()
@@ -217,8 +214,7 @@ func TestCorpus(t *testing.T) {
 				rustJSON = bytes.ReplaceAll(rustJSON, []byte(`"appliesTo":{"resourceTypes":[],"principalTypes":[]}`), nil)
 
 				// Unmarshal Rust JSON to handle any syntax issues from replacement
-				var rustSchema schema.Schema
-				err = rustSchema.UnmarshalJSON(rustJSON)
+				rustSchema, err := schema.NewFromJSON(rustJSON)
 				testutil.OK(t, err)
 
 				// Marshal both schemas to JSON for comparison
