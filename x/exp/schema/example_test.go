@@ -28,8 +28,8 @@ action viewPhoto appliesTo {
 `
 
 func ExampleSchema() {
-	var s schema.Schema
-	if err := s.UnmarshalCedar([]byte(exampleCedar)); err != nil {
+	s, err := schema.NewFromCedar("", []byte(exampleCedar))
+	if err != nil {
 		fmt.Println("schema parse error:", err)
 		return
 	}

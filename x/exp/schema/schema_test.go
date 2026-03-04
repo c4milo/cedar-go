@@ -327,8 +327,6 @@ var wantJSON = `{
 }`
 
 // wantAST is the expected AST structure for the test schema.
-// The Cedar parser produces ast.TypeRef for all type names (including
-// builtins like String, Long, Bool). Resolution happens later.
 var wantAST = &ast.Schema{
 	CommonTypes: ast.CommonTypes{
 		"Address": ast.CommonType{
@@ -466,8 +464,6 @@ var wantAST = &ast.Schema{
 	},
 }
 
-// wantResolved is the expected resolved schema structure.
-// All type references have been fully qualified and common types inlined.
 var wantResolved = &resolved.Schema{
 	Namespaces: map[types.Path]resolved.Namespace{
 		"MyApp": {
@@ -478,12 +474,8 @@ var wantResolved = &resolved.Schema{
 		},
 	},
 	Entities: map[types.EntityType]resolved.Entity{
-		"Admin": {
-			Name: "Admin",
-		},
-		"Country": {
-			Name: "Country",
-		},
+		"Admin":   {Name: "Admin"},
+		"Country": {Name: "Country"},
 		"System": {
 			Name:        "System",
 			ParentTypes: []types.EntityType{"Admin"},
@@ -494,12 +486,10 @@ var wantResolved = &resolved.Schema{
 		"MyApp::Department": {
 			Name: "MyApp::Department",
 			Shape: resolved.RecordType{
-				"budget": resolved.Attribute{
-					Type: resolved.RecordType{
-						"decimal": resolved.Attribute{Type: resolved.LongType{}},
-						"whole":   resolved.Attribute{Type: resolved.LongType{}},
-					},
-				},
+				"budget": resolved.Attribute{Type: resolved.RecordType{
+					"decimal": resolved.Attribute{Type: resolved.LongType{}},
+					"whole":   resolved.Attribute{Type: resolved.LongType{}},
+				}},
 			},
 		},
 		"MyApp::Document": {
@@ -513,12 +503,10 @@ var wantResolved = &resolved.Schema{
 			Name:        "MyApp::Group",
 			ParentTypes: []types.EntityType{"MyApp::Department"},
 			Shape: resolved.RecordType{
-				"metadata": resolved.Attribute{
-					Type: resolved.RecordType{
-						"created": resolved.Attribute{Type: resolved.ExtensionType("datetime")},
-						"tags":    resolved.Attribute{Type: resolved.SetType{Element: resolved.StringType{}}},
-					},
-				},
+				"metadata": resolved.Attribute{Type: resolved.RecordType{
+					"created": resolved.Attribute{Type: resolved.ExtensionType("datetime")},
+					"tags":    resolved.Attribute{Type: resolved.SetType{Element: resolved.StringType{}}},
+				}},
 				"name": resolved.Attribute{Type: resolved.StringType{}},
 			},
 		},
@@ -528,72 +516,43 @@ var wantResolved = &resolved.Schema{
 			ParentTypes: []types.EntityType{"MyApp::Group"},
 			Shape: resolved.RecordType{
 				"active": resolved.Attribute{Type: resolved.BoolType{}},
-				"address": resolved.Attribute{
-					Type: resolved.RecordType{
-						"city": resolved.Attribute{
-							Type:        resolved.StringType{},
-							Annotations: resolved.Annotations{"also": "town"},
-						},
-						"country": resolved.Attribute{Type: resolved.EntityType("Country")},
-						"street":  resolved.Attribute{Type: resolved.StringType{}},
-						"zipcode": resolved.Attribute{Type: resolved.StringType{}, Optional: true},
-					},
-				},
+				"address": resolved.Attribute{Type: resolved.RecordType{
+					"city":    resolved.Attribute{Type: resolved.StringType{}, Annotations: resolved.Annotations{"also": "town"}},
+					"country": resolved.Attribute{Type: resolved.EntityType("Country")},
+					"street":  resolved.Attribute{Type: resolved.StringType{}},
+					"zipcode": resolved.Attribute{Type: resolved.StringType{}, Optional: true},
+				}},
 				"email": resolved.Attribute{Type: resolved.StringType{}},
 				"level": resolved.Attribute{Type: resolved.LongType{}},
 			},
 		},
 	},
 	Enums: map[types.EntityType]resolved.Enum{
-		"Role": {
-			Name:   "Role",
-			Values: []types.EntityUID{types.NewEntityUID("Role", "superuser"), types.NewEntityUID("Role", "operator")},
-		},
-		"MyApp::Status": {
-			Name:   "MyApp::Status",
-			Values: []types.EntityUID{types.NewEntityUID("MyApp::Status", "draft"), types.NewEntityUID("MyApp::Status", "published"), types.NewEntityUID("MyApp::Status", "archived")},
-		},
+		"Role":          {Name: "Role", Values: []types.EntityUID{types.NewEntityUID("Role", "superuser"), types.NewEntityUID("Role", "operator")}},
+		"MyApp::Status": {Name: "MyApp::Status", Values: []types.EntityUID{types.NewEntityUID("MyApp::Status", "draft"), types.NewEntityUID("MyApp::Status", "published"), types.NewEntityUID("MyApp::Status", "archived")}},
 	},
 	Actions: map[types.EntityUID]resolved.Action{
 		types.NewEntityUID("Action", "audit"): {
-			Entity: types.Entity{UID: types.NewEntityUID("Action", "audit"), Parents: types.NewEntityUIDSet()},
-			AppliesTo: &resolved.AppliesTo{
-				Principals: []types.EntityType{"Admin"},
-				Resources:  []types.EntityType{"MyApp::Document", "System"},
-				Context:    resolved.RecordType{},
-			},
+			Entity:    types.Entity{UID: types.NewEntityUID("Action", "audit"), Parents: types.NewEntityUIDSet()},
+			AppliesTo: &resolved.AppliesTo{Principals: []types.EntityType{"Admin"}, Resources: []types.EntityType{"MyApp::Document", "System"}, Context: resolved.RecordType{}},
 		},
 		types.NewEntityUID("MyApp::Action", "edit"): {
 			Entity:      types.Entity{UID: types.NewEntityUID("MyApp::Action", "edit"), Parents: types.NewEntityUIDSet()},
 			Annotations: resolved.Annotations{"doc": "View or edit document"},
-			AppliesTo: &resolved.AppliesTo{
-				Principals: []types.EntityType{"MyApp::User"},
-				Resources:  []types.EntityType{"MyApp::Document"},
-				Context: resolved.RecordType{
-					"ip":        resolved.Attribute{Type: resolved.ExtensionType("ipaddr")},
-					"timestamp": resolved.Attribute{Type: resolved.ExtensionType("datetime")},
-				},
-			},
+			AppliesTo: &resolved.AppliesTo{Principals: []types.EntityType{"MyApp::User"}, Resources: []types.EntityType{"MyApp::Document"}, Context: resolved.RecordType{
+				"ip": resolved.Attribute{Type: resolved.ExtensionType("ipaddr")}, "timestamp": resolved.Attribute{Type: resolved.ExtensionType("datetime")},
+			}},
 		},
 		types.NewEntityUID("MyApp::Action", "manage"): {
-			Entity: types.Entity{UID: types.NewEntityUID("MyApp::Action", "manage"), Parents: types.NewEntityUIDSet()},
-			AppliesTo: &resolved.AppliesTo{
-				Principals: []types.EntityType{"MyApp::User"},
-				Resources:  []types.EntityType{"MyApp::Document", "MyApp::Group"},
-				Context:    resolved.RecordType{},
-			},
+			Entity:    types.Entity{UID: types.NewEntityUID("MyApp::Action", "manage"), Parents: types.NewEntityUIDSet()},
+			AppliesTo: &resolved.AppliesTo{Principals: []types.EntityType{"MyApp::User"}, Resources: []types.EntityType{"MyApp::Document", "MyApp::Group"}, Context: resolved.RecordType{}},
 		},
 		types.NewEntityUID("MyApp::Action", "view"): {
 			Entity:      types.Entity{UID: types.NewEntityUID("MyApp::Action", "view"), Parents: types.NewEntityUIDSet()},
 			Annotations: resolved.Annotations{"doc": "View or edit document"},
-			AppliesTo: &resolved.AppliesTo{
-				Principals: []types.EntityType{"MyApp::User"},
-				Resources:  []types.EntityType{"MyApp::Document"},
-				Context: resolved.RecordType{
-					"ip":        resolved.Attribute{Type: resolved.ExtensionType("ipaddr")},
-					"timestamp": resolved.Attribute{Type: resolved.ExtensionType("datetime")},
-				},
-			},
+			AppliesTo: &resolved.AppliesTo{Principals: []types.EntityType{"MyApp::User"}, Resources: []types.EntityType{"MyApp::Document"}, Context: resolved.RecordType{
+				"ip": resolved.Attribute{Type: resolved.ExtensionType("ipaddr")}, "timestamp": resolved.Attribute{Type: resolved.ExtensionType("datetime")},
+			}},
 		},
 	},
 }
@@ -601,25 +560,24 @@ var wantResolved = &resolved.Schema{
 func TestSchema(t *testing.T) {
 	t.Parallel()
 
-	t.Run("UnmarshalCedar", func(t *testing.T) {
+	t.Run("NewFromCedar", func(t *testing.T) {
 		t.Parallel()
-		var s schema.Schema
-		err := s.UnmarshalCedar([]byte(wantCedar))
+		s, err := schema.NewFromCedar("", []byte(wantCedar))
 		testutil.OK(t, err)
 		testutil.Equals(t, s.AST(), wantAST)
 	})
 
-	t.Run("UnmarshalJSON", func(t *testing.T) {
+	t.Run("NewFromJSON", func(t *testing.T) {
 		t.Parallel()
-		var s schema.Schema
-		err := s.UnmarshalJSON([]byte(wantJSON))
+		s, err := schema.NewFromJSON([]byte(wantJSON))
 		testutil.OK(t, err)
 		testutil.Equals(t, s.AST(), wantAST)
 	})
 
 	t.Run("MarshalCedar", func(t *testing.T) {
 		t.Parallel()
-		s := schema.NewSchemaFromAST(wantAST)
+		s, err := schema.NewSchemaFromAST(wantAST)
+		testutil.OK(t, err)
 		b, err := s.MarshalCedar()
 		testutil.OK(t, err)
 		stringEquals(t, string(b), wantCedar)
@@ -627,7 +585,8 @@ func TestSchema(t *testing.T) {
 
 	t.Run("MarshalJSON", func(t *testing.T) {
 		t.Parallel()
-		s := schema.NewSchemaFromAST(wantAST)
+		s, err := schema.NewSchemaFromAST(wantAST)
+		testutil.OK(t, err)
 		b, err := s.MarshalJSON()
 		testutil.OK(t, err)
 		stringEquals(t, string(normalizeJSON(t, b)), string(normalizeJSON(t, []byte(wantJSON))))
@@ -635,7 +594,8 @@ func TestSchema(t *testing.T) {
 
 	t.Run("Resolve", func(t *testing.T) {
 		t.Parallel()
-		s := schema.NewSchemaFromAST(wantAST)
+		s, err := schema.NewSchemaFromAST(wantAST)
+		testutil.OK(t, err)
 		r, err := s.Resolve()
 		testutil.OK(t, err)
 		testutil.Equals(t, r, wantResolved)
@@ -643,112 +603,151 @@ func TestSchema(t *testing.T) {
 
 	t.Run("CedarRoundTrip", func(t *testing.T) {
 		t.Parallel()
-		var s schema.Schema
-		testutil.OK(t, s.UnmarshalCedar([]byte(wantCedar)))
+		s, err := schema.NewFromCedar("", []byte(wantCedar))
+		testutil.OK(t, err)
 		b, err := s.MarshalCedar()
 		testutil.OK(t, err)
-		var s2 schema.Schema
-		testutil.OK(t, s2.UnmarshalCedar(b))
+		s2, err := schema.NewFromCedar("", b)
+		testutil.OK(t, err)
 		testutil.Equals(t, s2.AST(), wantAST)
 	})
 
 	t.Run("JSONRoundTrip", func(t *testing.T) {
 		t.Parallel()
-		var s schema.Schema
-		testutil.OK(t, s.UnmarshalJSON([]byte(wantJSON)))
+		s, err := schema.NewFromJSON([]byte(wantJSON))
+		testutil.OK(t, err)
 		b, err := s.MarshalJSON()
 		testutil.OK(t, err)
-		var s2 schema.Schema
-		testutil.OK(t, s2.UnmarshalJSON(b))
+		s2, err := schema.NewFromJSON(b)
+		testutil.OK(t, err)
 		testutil.Equals(t, s2.AST(), wantAST)
 	})
 
 	t.Run("CedarToJSONRoundTrip", func(t *testing.T) {
 		t.Parallel()
-		var s schema.Schema
-		testutil.OK(t, s.UnmarshalCedar([]byte(wantCedar)))
+		s, err := schema.NewFromCedar("", []byte(wantCedar))
+		testutil.OK(t, err)
 		jsonBytes, err := s.MarshalJSON()
 		testutil.OK(t, err)
-		var s2 schema.Schema
-		testutil.OK(t, s2.UnmarshalJSON(jsonBytes))
+		s2, err := schema.NewFromJSON(jsonBytes)
+		testutil.OK(t, err)
 		testutil.Equals(t, s2.AST(), wantAST)
 	})
 
 	t.Run("JSONToCedarRoundTrip", func(t *testing.T) {
 		t.Parallel()
-		var s schema.Schema
-		testutil.OK(t, s.UnmarshalJSON([]byte(wantJSON)))
+		s, err := schema.NewFromJSON([]byte(wantJSON))
+		testutil.OK(t, err)
 		cedarBytes, err := s.MarshalCedar()
 		testutil.OK(t, err)
-		var s2 schema.Schema
-		testutil.OK(t, s2.UnmarshalCedar(cedarBytes))
+		s2, err := schema.NewFromCedar("", cedarBytes)
+		testutil.OK(t, err)
 		testutil.Equals(t, s2.AST(), wantAST)
 	})
 
 	t.Run("JSONMarshalInterface", func(t *testing.T) {
 		t.Parallel()
-		s := schema.NewSchemaFromAST(wantAST)
+		s, err := schema.NewSchemaFromAST(wantAST)
+		testutil.OK(t, err)
 		b, err := json.Marshal(s)
 		testutil.OK(t, err)
-		var s2 schema.Schema
-		testutil.OK(t, json.Unmarshal(b, &s2))
+		s2, err := schema.NewFromJSON(b)
+		testutil.OK(t, err)
 		testutil.Equals(t, s2.AST(), wantAST)
 	})
 
-	t.Run("UnmarshalCedarErr", func(t *testing.T) {
+	t.Run("NewFromCedarErr", func(t *testing.T) {
 		t.Parallel()
-		var s schema.Schema
-		const filename = "path/to/my-file-name.cedarschema"
-		s.SetFilename(filename)
-		err := s.UnmarshalCedar([]byte("LSKJDFN"))
+		_, err := schema.NewFromCedar("path/to/my-file-name.cedarschema", []byte("LSKJDFN"))
 		testutil.Error(t, err)
-		testutil.FatalIf(t, !strings.Contains(err.Error(), filename+":1:1"), "expected %q in error: %v", filename, err)
+		testutil.FatalIf(t, !strings.Contains(err.Error(), "path/to/my-file-name.cedarschema:1:1"), "expected filename in error: %v", err)
 	})
 
-	t.Run("UnmarshalJSONErr", func(t *testing.T) {
+	t.Run("NewFromJSONErr", func(t *testing.T) {
 		t.Parallel()
-		var s schema.Schema
-		err := s.UnmarshalJSON([]byte("LSKJDFN"))
+		_, err := schema.NewFromJSON([]byte("LSKJDFN"))
 		testutil.Error(t, err)
 	})
 
 	t.Run("ResolveErr", func(t *testing.T) {
 		t.Parallel()
-		var s schema.Schema
-		testutil.OK(t, s.UnmarshalCedar([]byte(`entity User in [NonExistent];`)))
-		_, err := s.Resolve()
+		// Schema with undefined entity type reference fails during construction
+		_, err := schema.NewFromCedar("", []byte(`entity User in [NonExistent];`))
 		testutil.Error(t, err)
-	})
-
-	t.Run("ZeroValueSchema", func(t *testing.T) {
-		t.Parallel()
-		var s schema.Schema
-
-		b, err := s.MarshalCedar()
-		testutil.OK(t, err)
-		testutil.Equals(t, string(b), "")
-
-		jb, err := s.MarshalJSON()
-		testutil.OK(t, err)
-		testutil.Equals(t, string(jb), "{}")
-
-		r, err := s.Resolve()
-		testutil.OK(t, err)
-		testutil.Equals(t, r != nil, true)
-
-		testutil.Equals(t, s.AST() != nil, true)
 	})
 
 	t.Run("EmptySchema", func(t *testing.T) {
 		t.Parallel()
-		s := schema.NewSchemaFromAST(&ast.Schema{})
+		s, err := schema.NewSchemaFromAST(&ast.Schema{})
+		testutil.OK(t, err)
 		b, err := s.MarshalCedar()
 		testutil.OK(t, err)
 		testutil.Equals(t, string(b), "")
-
 		jb, err := s.MarshalJSON()
 		testutil.OK(t, err)
 		testutil.Equals(t, string(jb), "{}")
+	})
+
+	t.Run("Introspection", func(t *testing.T) {
+		t.Parallel()
+		s, err := schema.NewFromCedar("", []byte(wantCedar))
+		testutil.OK(t, err)
+		etMap := s.EntityTypesMap()
+		testutil.FatalIf(t, etMap == nil, "EntityTypesMap should not be nil")
+		testutil.FatalIf(t, len(etMap) == 0, "EntityTypesMap should not be empty")
+		atMap := s.ActionTypesMap()
+		testutil.FatalIf(t, atMap == nil, "ActionTypesMap should not be nil")
+		testutil.FatalIf(t, len(atMap) == 0, "ActionTypesMap should not be empty")
+	})
+
+	t.Run("FlatJSONSchema", func(t *testing.T) {
+		t.Parallel()
+		flatJSON := `{
+			"entityTypes": {
+				"User": {
+					"memberOfTypes": ["Group"],
+					"shape": { "type": "Record", "attributes": { "name": { "type": "EntityOrCommon", "name": "String" } } }
+				},
+				"Group": {}
+			},
+			"actions": {
+				"view": { "appliesTo": { "principalTypes": ["User"], "resourceTypes": ["Group"] } }
+			}
+		}`
+		s, err := schema.NewFromJSON([]byte(flatJSON))
+		testutil.OK(t, err)
+		testutil.FatalIf(t, s == nil, "schema should not be nil")
+		_, hasUser := s.EntityTypesMap()["User"]
+		testutil.FatalIf(t, !hasUser, "should have User entity type")
+	})
+
+	t.Run("SchemaFragment", func(t *testing.T) {
+		t.Parallel()
+		frag1, err := schema.NewFragmentFromCedar("", []byte(`
+			entity User;
+			action view appliesTo { principal: User, resource: User };
+		`))
+		testutil.OK(t, err)
+		frag2, err := schema.NewFragmentFromCedar("", []byte(`entity Group;`))
+		testutil.OK(t, err)
+		s, err := schema.FromFragments(frag1, frag2)
+		testutil.OK(t, err)
+		testutil.FatalIf(t, s == nil, "schema from fragments should not be nil")
+		etMap := s.EntityTypesMap()
+		_, hasUser := etMap["User"]
+		_, hasGroup := etMap["Group"]
+		testutil.FatalIf(t, !hasUser, "should have User")
+		testutil.FatalIf(t, !hasGroup, "should have Group")
+	})
+
+	t.Run("SchemaFragmentDuplicateError", func(t *testing.T) {
+		t.Parallel()
+		frag1, err := schema.NewFragmentFromCedar("", []byte(`entity User;`))
+		testutil.OK(t, err)
+		frag2, err := schema.NewFragmentFromCedar("", []byte(`entity User;`))
+		testutil.OK(t, err)
+		_, err = schema.FromFragments(frag1, frag2)
+		testutil.Error(t, err)
 	})
 }
 
