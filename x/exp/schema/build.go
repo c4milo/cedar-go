@@ -19,6 +19,7 @@ func (s *Schema) buildFromResolved(rs *resolved.Schema) {
 		info := &EntityTypeInfo{
 			Attributes:    convertRecordAttrs(ent.Shape),
 			MemberOfTypes: ent.ParentTypes,
+			Annotations:   convertAnnotations(ent.Annotations),
 		}
 		if ent.Shape == nil {
 			info.OpenRecord = true
@@ -27,15 +28,18 @@ func (s *Schema) buildFromResolved(rs *resolved.Schema) {
 	}
 
 	// Enum types are presented as entity types with no attributes.
-	for name := range rs.Enums {
+	for name, enum := range rs.Enums {
 		s.entityTypes[name] = &EntityTypeInfo{
-			Attributes: map[string]AttributeType{},
+			Attributes:  map[string]AttributeType{},
+			Annotations: convertAnnotations(enum.Annotations),
 		}
 	}
 
 	// Actions
 	for uid, act := range rs.Actions {
-		info := &ActionTypeInfo{}
+		info := &ActionTypeInfo{
+			Annotations: convertAnnotations(act.Annotations),
+		}
 		if act.AppliesTo != nil {
 			info.PrincipalTypes = act.AppliesTo.Principals
 			info.ResourceTypes = act.AppliesTo.Resources
@@ -212,4 +216,16 @@ func convertRecordAttrs(rec resolved.RecordType) map[string]AttributeType {
 		}
 	}
 	return attrs
+}
+
+// convertAnnotations converts resolved.Annotations to the public Annotations type.
+func convertAnnotations(ra resolved.Annotations) Annotations {
+	if len(ra) == 0 {
+		return nil
+	}
+	a := make(Annotations, len(ra))
+	for k, v := range ra {
+		a[string(k)] = string(v)
+	}
+	return a
 }

@@ -187,6 +187,16 @@ func (UnspecifiedType) IsSet() bool     { return false }
 func (UnspecifiedType) IsRecord() bool  { return false }
 func (UnspecifiedType) IsUnknown() bool { return true } // Treated as unknown for type checking
 
+// Annotations holds schema annotations as key-value pairs.
+// In Cedar schema, annotations are declared as @key("value") before
+// declarations. The conventional key for documentation is "doc".
+type Annotations map[string]string
+
+// Doc returns the value of the "doc" annotation, if present.
+func (a Annotations) Doc() string {
+	return a["doc"]
+}
+
 // EntityTypeInfo contains schema information about an entity type.
 type EntityTypeInfo struct {
 	// Attributes defined on this entity type
@@ -195,6 +205,8 @@ type EntityTypeInfo struct {
 	MemberOfTypes []types.EntityType
 	// OpenRecord when true allows additional attributes not declared in schema
 	OpenRecord bool
+	// Annotations from the schema (e.g., @doc("description"))
+	Annotations Annotations
 }
 
 // ActionTypeInfo contains schema information about an action.
@@ -207,6 +219,8 @@ type ActionTypeInfo struct {
 	Context RecordType
 	// Actions this action is a member of
 	MemberOf []types.EntityUID
+	// Annotations from the schema (e.g., @doc("description"))
+	Annotations Annotations
 }
 
 // RequestEnv represents a valid principal-type / action / resource-type
